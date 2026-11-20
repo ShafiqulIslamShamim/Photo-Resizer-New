@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../controllers/photo_controller.dart';
 import '../controllers/theme_controller.dart';
+import '../models/photo_models.dart';
 import 'configure_screen.dart';
 import 'cropping_screen.dart';
 import 'preview_screen.dart';

@@ -344,7 +344,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
                         child: Image.memory(original, fit: BoxFit.contain),
                       ),
                     Positioned.fill(
-                      child: ClipPath(
+                      child: ClipRect(
                         clipper: _RightFractionClipper(_sliderFraction),
                         child: Image.memory(processed, fit: BoxFit.contain),
                       ),
