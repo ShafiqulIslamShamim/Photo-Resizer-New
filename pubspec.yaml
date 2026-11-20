@@ -1,0 +1,32 @@
+name: photo_resizer
+description: "Photo resizer and compressor with advanced scaling."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  shared_preferences: ^2.5.6
+  dynamic_color: ^2.1.0
+  package_info_plus: ^10.2.2
+  path_drawing: ^1.0.1
+  url_launcher: ^6.3.3
+  material_ui: ^1.11.0
+  pointycastle: ^4.0.0
+  file_picker: ^13.0.0
+  share_plus: ^13.0.0
+  image: ^4.10.0
+  image_picker: ^1.1.2
+  path_provider: ^2.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  generate: true
+  uses-material-design: true

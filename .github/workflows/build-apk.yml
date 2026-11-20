@@ -1,0 +1,93 @@
+name: Build Flutter release APK
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Android release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # ---------------------------------------------------------
+      # Checkout
+      # ---------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ---------------------------------------------------------
+      # Java
+      # ---------------------------------------------------------
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # ---------------------------------------------------------
+      # Flutter
+      # ---------------------------------------------------------
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Check Flutter version
+        run: flutter --version
+
+      # ---------------------------------------------------------
+      # Upgrade Dependencies
+      # ---------------------------------------------------------
+      - name: Upgrade Flutter dependencies
+        run: |
+          flutter pub upgrade --major-versions
+          flutter pub outdated
+
+      # ---------------------------------------------------------
+      # Generate Android, iOS and Web projects
+      # ---------------------------------------------------------
+      - name: Generate Android iOS and Web projects
+        run: |
+          flutter create . \
+           --platforms=android,ios,web \
+           --project-name=photoresizer\
+           --org=com.shamim \
+           --description="Photo resizer and compressor with advanced scaling."
+
+      # ---------------------------------------------------------
+      # Build Release APK
+      # ---------------------------------------------------------
+      - name: Build Release APK
+        run: flutter build apk --release
+
+      # ---------------------------------------------------------
+      # Commit generated
+      # ---------------------------------------------------------
+      - name: Commit generated platform files
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          commit_message: "chore: generate Android iOS and Web platforms [skip ci]"
+
+      # ---------------------------------------------------------
+      # Upload Release APK
+      # ---------------------------------------------------------
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: land-measurement-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
