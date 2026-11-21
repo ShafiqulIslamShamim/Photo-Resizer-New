@@ -109,7 +109,6 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _previewCard(meta, c, colors),
-                      const SizedBox(height: 4),
                       _sectionTitle('Resolution Mode'),
                       _segmented(
                         ['Custom Size', 'Preset Size', 'Aspect Ratio'],
@@ -139,6 +138,7 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
                         (value) => c.setCutShape(CutShapeX.fromLabel(value)),
                         colors,
                         testPrefix: 'shape_segment',
+                        fontSize: 12,
                       ),
                       _sectionTitle('File Size Optimization'),
                       _compressionCard(c, colors),
@@ -190,7 +190,7 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _metaColumn('Original Format', meta.format.label, colors),
+                _metaColumn('Original Format', 'JPEG File', colors),
                 _metaColumn('Resolution', '${meta.width} × ${meta.height} px', colors),
                 _metaColumn(
                   'Ratio',
@@ -221,9 +221,9 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     );
   }
 
-  Widget _sectionTitle(String text, {double top = 8}) {
+  Widget _sectionTitle(String text, {double top = 8, double bottom = 8}) {
     return Padding(
-      padding: EdgeInsets.only(top: top, bottom: 8),
+      padding: EdgeInsets.only(top: top, bottom: bottom),
       child: Text(
         text,
         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
@@ -256,6 +256,7 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     ValueChanged<String> onChanged,
     ColorScheme colors, {
     String? testPrefix,
+    double fontSize = 11,
   }) {
     return _segmentPanel(
       colors: colors,
@@ -272,7 +273,7 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
                 option,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: fontSize,
                   fontWeight: FontWeight.bold,
                   color: selected == option ? colors.onPrimary : colors.onSurfaceVariant,
                 ),
@@ -475,6 +476,7 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
           c.selectedPresetRatio,
           colors,
           (preset) => c.selectPreset(preset),
+          fontSize: 12,
         ),
         if (c.selectedPresetRatio == kCustomRatio) ...[
           const Text(
@@ -512,8 +514,9 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     List<String> options,
     String selected,
     ColorScheme colors,
-    ValueChanged<String> onTap,
-  ) {
+    ValueChanged<String> onTap, {
+    double fontSize = 11,
+  }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(6),
@@ -535,7 +538,7 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
               child: Text(
                 option,
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: fontSize,
                   fontWeight: FontWeight.bold,
                   color: selected == option
                       ? colors.onPrimary
@@ -548,7 +551,7 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     );
   }
 
-  Widget _infoRow(String text, ColorScheme colors) {
+  Widget _infoRow(String text, ColorScheme colors, {double fontSize = 11}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Row(
@@ -559,7 +562,7 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
           Expanded(
             child: Text(
               text,
-              style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
+              style: TextStyle(fontSize: fontSize, color: colors.onSurfaceVariant),
             ),
           ),
         ],
@@ -626,6 +629,7 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
               _infoRow(
                 'Preserve maximum fidelity and clarity using standard default JPEG optimization without forced downscaling.',
                 colors,
+                fontSize: 12,
               )
             else ...[
               Text(

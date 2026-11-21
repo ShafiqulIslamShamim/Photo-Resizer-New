@@ -54,7 +54,6 @@ class _CroppingScreenState extends State<CroppingScreen> {
   int? _activeFreeHandle;
   late double _freeStartLeft, _freeStartTop, _freeStartRight, _freeStartBottom;
   late Offset _freeStartTouch;
-  late _Geo _lastGeo;
 
   static const double _toolsHeight = 270.0;
 
@@ -93,18 +92,35 @@ class _CroppingScreenState extends State<CroppingScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final geo = _computeGeo(constraints, bitmap, targetRatio, c);
-                return _buildViewport(context, c, geo, colors);
-              },
-            ),
-          ),
-          SizedBox(height: _toolsHeight, child: _buildTools(context, c, colors)),
-        ],
+      // Compute the viewport geometry once, during the build phase, so the
+      // tool bar can use it on the very first frame. The previous approach set
+      // it from the viewport's LayoutBuilder (layout phase), which left it
+      // uninitialized when the tool bar was built and threw a
+      // LateInitializationError on first open.
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final viewportHeight =
+              (constraints.maxHeight - _toolsHeight).clamp(0.0, double.infinity).toDouble();
+          final geo = _computeGeo(
+            BoxConstraints(maxWidth: constraints.maxWidth, maxHeight: viewportHeight),
+            bitmap,
+            targetRatio,
+            c,
+          );
+          return Column(
+            children: [
+              SizedBox(
+                width: double.infinity,
+                height: viewportHeight,
+                child: _buildViewport(context, c, geo, colors),
+              ),
+              SizedBox(
+                height: _toolsHeight,
+                child: _buildTools(context, c, geo, colors),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -199,7 +215,6 @@ class _CroppingScreenState extends State<CroppingScreen> {
     final bytes = c.originalDisplayBytes;
     final isPerspective = _mode == CropToolMode.perspective4d;
 
-    _lastGeo = g;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onScaleStart: (d) {
@@ -375,20 +390,27 @@ class _CroppingScreenState extends State<CroppingScreen> {
   // ---------------------------------------------------------------------------
   // Tools area
   // ---------------------------------------------------------------------------
-  Widget _buildTools(BuildContext context, PhotoController c, ColorScheme colors) {
-    return Container(
-      padding: const EdgeInsets.only(bottom: 12, left: 16, right: 16, top: 8),
-      color: Colors.black,
-      width: double.infinity,
-      child: _mode == CropToolMode.perspective4d
-          ? _perspectiveTools(context, c, colors)
-          : _regularTools(context, c, colors),
+  Widget _buildTools(BuildContext context, PhotoController c, _Geo geo, ColorScheme colors) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Container(
+          padding: const EdgeInsets.only(bottom: 12, left: 16, right: 16, top: 8),
+          color: Colors.black,
+          width: double.infinity,
+          child: _mode == CropToolMode.perspective4d
+              ? _perspectiveTools(context, c, colors)
+              // The Container adds 16 dp of padding on each side; subtract it
+              // so the ruler never overflows the tool bar.
+              : _regularTools(context, c, geo, colors, constraints.maxWidth - 32),
+        );
+      },
     );
   }
 
   Widget _perspectiveTools(BuildContext context, PhotoController c, ColorScheme colors) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         GestureDetector(
           onLongPressStart: (_) => setState(() => _holdingOriginal = true),
@@ -454,12 +476,14 @@ class _CroppingScreenState extends State<CroppingScreen> {
     );
   }
 
-  Widget _regularTools(BuildContext context, PhotoController c, ColorScheme colors) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final g = _lastGeo;
-        final toolsWidth = constraints.maxWidth;
-        return Column(
+  Widget _regularTools(
+    BuildContext context,
+    PhotoController c,
+    _Geo g,
+    ColorScheme colors,
+    double toolsWidth,
+  ) {
+    return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (_mode == CropToolMode.grid)
@@ -582,18 +606,15 @@ class _CroppingScreenState extends State<CroppingScreen> {
                   color: colors.primary,
                   activeColor: colors.onPrimary,
                   testKey: 'confirm_crop_button',
-                  onTap: () => _confirmCrop(c),
+                  onTap: () => _confirmCrop(c, g),
                 ),
               ],
             ),
           ],
         );
-      },
-    );
   }
 
-  void _confirmCrop(PhotoController c) {
-    final g = _lastGeo;
+  void _confirmCrop(PhotoController c, _Geo g) {
     final bitmap = c.originalImage!;
     final srcX1 = (g.cropX1 - g.containerW / 2 - _offsetX) / _scale + g.containerW / 2;
     final srcY1 = (g.cropY1 - g.containerH / 2 - _offsetY) / _scale + g.containerH / 2;

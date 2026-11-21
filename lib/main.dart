@@ -7,17 +7,17 @@ import 'screens/home_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const EncryptorApp());
+  runApp(const PhotoResizerApp());
 }
 
-class EncryptorApp extends StatefulWidget {
-  const EncryptorApp({super.key});
+class PhotoResizerApp extends StatefulWidget {
+  const PhotoResizerApp({super.key});
 
   @override
-  State<EncryptorApp> createState() => _EncryptorAppState();
+  State<PhotoResizerApp> createState() => _PhotoResizerAppState();
 }
 
-class _EncryptorAppState extends State<EncryptorApp> {
+class _PhotoResizerAppState extends State<PhotoResizerApp> {
   final ThemeController themeController = ThemeController();
 
   @override
