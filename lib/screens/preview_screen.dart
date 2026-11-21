@@ -152,23 +152,29 @@ class _PreviewScreenState extends State<PreviewScreen> {
     );
   }
 
+  /// Mirrors the Compose "Stats badge" Card in PreviewScreen.kt.
   Widget _statsCard(ImageMetadata meta, int saved, ColorScheme colors) {
+    // Compose uses toInt() (truncation), then coerceIn(0, 100).
     final pct = meta.sizeBytes > 0
-        ? (((meta.sizeBytes - saved) / meta.sizeBytes) * 100).round().clamp(0, 100)
+        ? (((meta.sizeBytes - saved) / meta.sizeBytes) * 100).toInt().clamp(0, 100)
         : 0;
     return Card(
       color: colors.primaryContainer,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      width: double.infinity,
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            // Compose's CircleShape is RoundedCornerShape(percent = 50), i.e. a
+            // pill. BoxShape.circle would shrink to the text height and clip it.
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
                 color: colors.primary,
-                shape: BoxShape.circle,
+                borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
                 '$pct% Scaled Down',
@@ -192,7 +198,6 @@ class _PreviewScreenState extends State<PreviewScreen> {
                       color: colors.onPrimaryContainer,
                     ),
                   ),
-                  const SizedBox(height: 2),
                   Text(
                     'A perfect slim copy optimized for online portals, applications, or social sharing.',
                     style: TextStyle(

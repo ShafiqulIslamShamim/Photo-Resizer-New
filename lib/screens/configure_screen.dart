@@ -174,6 +174,10 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
       c.selectPreset(c.selectedPresetRatio);
     } else if (segment == 'Preset Size' && c.selectedPresetSize != 'None') {
       c.selectPresetSize(c.selectedPresetSize);
+    } else if (segment == 'Custom Size') {
+      // Show the loaded image's own resolution in the target fields, like the
+      // Compose screen does when the section is opened.
+      c.restoreOriginalResolution();
     }
   }
 

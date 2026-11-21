@@ -8,6 +8,7 @@ import 'package:image/image.dart' as img;
 
 import '../models/photo_models.dart';
 import '../util/image_utils.dart';
+import '../util/processing_isolate.dart';
 
 class PhotoController extends ChangeNotifier {
   // ---------------------------------------------------------------------------
@@ -47,6 +48,11 @@ class PhotoController extends ChangeNotifier {
   Uint8List? _originalDisplayBytes;
   Uint8List? get originalDisplayBytes => _originalDisplayBytes;
 
+  /// Original file bytes and 90° rotations, used by the background isolate so
+  /// the crop pipeline never runs on the UI thread.
+  Uint8List? _sourceBytes;
+  int _rotationTurns = 0;
+
   img.Image? _processedImage;
   img.Image? get processedImage => _processedImage;
 
@@ -84,6 +90,8 @@ class PhotoController extends ChangeNotifier {
     _originalMetadata = null;
     _originalImage = null;
     _originalDisplayBytes = null;
+    _sourceBytes = null;
+    _rotationTurns = 0;
     _processedImage = null;
     _processedDisplayBytes = null;
     _processedSizeBytes = 0;
@@ -102,6 +110,18 @@ class PhotoController extends ChangeNotifier {
     customRatioWidth = '';
     customRatioHeight = '';
     _screenState = ScreenState.welcome;
+    notifyListeners();
+  }
+
+  /// Restores the loaded image's own resolution into the target fields.
+  /// Used when the user switches back to the "Custom Size" section.
+  void restoreOriginalResolution() {
+    final meta = _originalMetadata;
+    if (meta == null) return;
+    targetWidthInput = meta.width.toString();
+    targetHeightInput = meta.height.toString();
+    selectedPresetRatio = 'Original';
+    selectedPresetSize = 'None';
     notifyListeners();
   }
 
@@ -163,6 +183,8 @@ class PhotoController extends ChangeNotifier {
 
       _originalMetadata = metadata;
       _originalImage = decoded;
+      _sourceBytes = bytes;
+      _rotationTurns = 0;
       final display = ImageUtils.createDisplayCopy(decoded);
       _originalDisplayBytes = ImageUtils.toPngBytes(display);
       targetWidthInput = metadata.width.toString();
@@ -374,6 +396,7 @@ class PhotoController extends ChangeNotifier {
     try {
       final rotated = ImageUtils.rotate90(bitmap);
       _originalImage = rotated;
+      _rotationTurns = (_rotationTurns + 1) % 4;
       final oldMeta = _originalMetadata;
       if (oldMeta != null) {
         _originalMetadata = oldMeta.copyWith(
@@ -410,54 +433,39 @@ class PhotoController extends ChangeNotifier {
     double perspectiveY = 0,
     List<double>? perspectivePoints,
   }) async {
+    final source = _sourceBytes;
     final bitmap = _originalImage;
-    if (bitmap == null) return;
+    if (source == null || bitmap == null) return;
     _loading = true;
     notifyListeners();
+    // Let the loading overlay paint before the isolate starts.
     await Future<void>.delayed(Duration.zero);
     try {
-      img.Image transformed;
-      if (perspectivePoints != null) {
-        transformed = ImageUtils.apply4PointPerspectiveWarp(
-          bitmap,
-          perspectivePoints,
-        );
-      } else {
-        final cropped = ImageUtils.cropRect(
-          bitmap,
-          pixelLeft,
-          pixelTop,
-          croppedW,
-          croppedH,
-        );
-        transformed = ImageUtils.applyFineTransform(
-          cropped,
-          rotationZ: fineRotation,
-          rotationX: perspectiveX,
-          rotationY: perspectiveY,
-        );
-      }
-
-      final targetW = int.tryParse(targetWidthInput) ?? transformed.width;
-      final targetH = int.tryParse(targetHeightInput) ?? transformed.height;
-      final scaled = ImageUtils.scaleTo(transformed, targetW, targetH);
-      final masked = ImageUtils.applyShapeMask(scaled, selectedCutShape);
-
-      final sizeLimitKb = _currentSizeLimitKb();
-      final format = _originalMetadata?.format ?? ExportFormat.jpg;
-      final compressed = ImageUtils.compressBitmapToBytes(
-        masked,
-        quality: 100,
-        format: format,
-        sizeLimitKb: sizeLimitKb,
+      final request = ProcessRequest(
+        sourceBytes: source,
+        rotationTurns: _rotationTurns,
+        left: pixelLeft,
+        top: pixelTop,
+        width: croppedW,
+        height: croppedH,
+        fineRotation: fineRotation,
+        perspectiveX: perspectiveX,
+        perspectiveY: perspectiveY,
+        perspectivePoints: perspectivePoints,
+        targetWidth: int.tryParse(targetWidthInput) ?? bitmap.width,
+        targetHeight: int.tryParse(targetHeightInput) ?? bitmap.height,
+        cutShape: selectedCutShape.label,
+        exportFormat: (_originalMetadata?.format ?? ExportFormat.jpg).label,
+        sizeLimitKb: _currentSizeLimitKb(),
       );
-      final finalBitmap = img.decodeImage(compressed) ?? masked;
 
-      _processedImage = finalBitmap;
-      _processedDisplayBytes = ImageUtils.toPngBytes(
-        ImageUtils.createDisplayCopy(finalBitmap),
-      );
-      _processedSizeBytes = compressed.length;
+      // All heavy pixel work happens on a separate isolate. The UI stays
+      // responsive, so Android never shows an ANR / "App isn't responding".
+      final result = await compute(processPhotoInBackground, request);
+
+      _processedImage = img.decodeImage(result.bytes);
+      _processedDisplayBytes = result.displayBytes;
+      _processedSizeBytes = result.bytes.length;
       _screenState = ScreenState.preview;
     } catch (_) {
       _oomDialogMessage =
