@@ -264,7 +264,10 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
             width: fillWidth ? double.infinity : null,
             height: height,
             padding: padding,
-            alignment: Alignment.center,
+            // With bounded Wrap constraints, a non-null alignment makes the
+            // Container fill the whole row. Chips must stay content-sized so
+            // they flow horizontally like Compose's FlowRow.
+            alignment: fillWidth ? Alignment.center : null,
             decoration: BoxDecoration(
               color: selected ? colors.primary : Colors.transparent,
               borderRadius: BorderRadius.circular(radius),

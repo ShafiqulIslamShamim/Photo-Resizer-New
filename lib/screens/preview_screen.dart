@@ -27,26 +27,30 @@ class _PreviewScreenState extends State<PreviewScreen> {
   ComparisonMode _compareMode = ComparisonMode.sideBySide;
   bool _showProcessed = true;
   late ExportFormat _format;
-  ExportFormat? _cachedFor;
-  int _cachedBytes = 0;
+  late int _savedBytes;
+  bool _computingSize = false;
   double _sliderFraction = 0.5;
 
   @override
   void initState() {
     super.initState();
     _format = widget.controller.originalMetadata?.format ?? ExportFormat.jpg;
+    _savedBytes = widget.controller.processedSizeBytes;
   }
 
   void _selectFormat(ExportFormat format) {
-    setState(() => _format = format);
-  }
-
-  int _savedBytes(PhotoController c) {
-    if (_cachedFor != _format) {
-      _cachedBytes = c.computeSavedBytes(_format);
-      _cachedFor = _format;
-    }
-    return _cachedBytes;
+    if (format == _format) return;
+    setState(() {
+      _format = format;
+      _computingSize = true;
+    });
+    widget.controller.computeSavedBytesAsync(format).then((bytes) {
+      if (!mounted) return;
+      setState(() {
+        _savedBytes = bytes;
+        _computingSize = false;
+      });
+    });
   }
 
   @override
@@ -59,7 +63,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
       builder: (context, _) {
         final meta = c.originalMetadata;
         final processedBytes = c.processedDisplayBytes;
-        final saved = _savedBytes(c);
+        final saved = _savedBytes;
         return Scaffold(
           backgroundColor: colors.surface,
           appBar: AppBar(
@@ -193,13 +197,30 @@ class _PreviewScreenState extends State<PreviewScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Compressed ${ImageUtils.formatFileSize(meta.sizeBytes)} to ${ImageUtils.formatFileSize(saved)}',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: colors.onPrimaryContainer,
-                      ),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            'Compressed ${ImageUtils.formatFileSize(meta.sizeBytes)} to ${ImageUtils.formatFileSize(saved)}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: colors.onPrimaryContainer,
+                            ),
+                          ),
+                        ),
+                        if (_computingSize) ...[
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colors.onPrimaryContainer,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     Text(
                       'A perfect slim copy optimized for online portals, applications, or social sharing.',

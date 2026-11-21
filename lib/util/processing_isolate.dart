@@ -61,6 +61,32 @@ class ProcessResult {
   });
 }
 
+/// Request used to recompute the export size for a different format.
+class RecompressRequest {
+  final Uint8List processedBytes;
+  final String exportFormat;
+  final int? sizeLimitKb;
+
+  const RecompressRequest({
+    required this.processedBytes,
+    required this.exportFormat,
+    required this.sizeLimitKb,
+  });
+}
+
+/// Re-encodes the processed image off the UI thread so switching JPG/PNG/WEBP
+/// segments never freezes the preview screen.
+int recompressInBackground(RecompressRequest request) {
+  final image = img.decodeImage(request.processedBytes);
+  if (image == null) return 0;
+  return ImageUtils.compressBitmapToBytes(
+    image,
+    quality: 100,
+    format: ExportFormatX.fromLabel(request.exportFormat),
+    sizeLimitKb: request.sizeLimitKb,
+  ).length;
+}
+
 /// Top-level entry point for `compute()`.
 Future<ProcessResult> processPhotoInBackground(ProcessRequest request) async {
   var source = ImageUtils.decodeCorrected(request.sourceBytes);

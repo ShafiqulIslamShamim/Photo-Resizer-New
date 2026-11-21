@@ -90,6 +90,10 @@ class PhotoController extends ChangeNotifier {
   int _processedSizeBytes = 0;
   int get processedSizeBytes => _processedSizeBytes;
 
+  /// Encoded bytes of the processed image, used to recompute export size for
+  /// other formats without blocking the UI.
+  Uint8List? _processedEncodedBytes;
+
   // ---------------------------------------------------------------------------
   // Configuration inputs
   // ---------------------------------------------------------------------------
@@ -122,6 +126,7 @@ class PhotoController extends ChangeNotifier {
     _rotationTurns = 0;
     _processedImage = null;
     _processedDisplayBytes = null;
+    _processedEncodedBytes = null;
     _processedSizeBytes = 0;
     _oomDialogMessage = null;
     targetWidthInput = '';
@@ -188,8 +193,10 @@ class PhotoController extends ChangeNotifier {
   }) async {
     _loading = true;
     notifyListeners();
-    // Let the loading overlay paint before the heavy decode starts.
-    await Future<void>.delayed(Duration.zero);
+    // Wait until the loading overlay has actually been painted. A zero-delay
+    // future can resume before the next frame, so fast decodes would finish
+    // before the spinner ever became visible.
+    await WidgetsBinding.instance.endOfFrame;
     try {
       // Decode once and reuse the result for both metadata and display pixels.
       final decoded = ImageUtils.decodeCorrected(bytes);
@@ -500,6 +507,7 @@ class PhotoController extends ChangeNotifier {
       final result = await compute(processPhotoInBackground, request);
 
       _processedImage = img.decodeImage(result.bytes);
+      _processedEncodedBytes = result.bytes;
       _processedDisplayBytes = result.displayBytes;
       _processedSizeBytes = result.bytes.length;
       _screenState = ScreenState.preview;
@@ -523,18 +531,20 @@ class PhotoController extends ChangeNotifier {
     return sizeLimitUnit == 'MB' ? input * 1024 : input;
   }
 
-  /// Recomputes the expected export size for a chosen output format (used by
-  /// the preview screen's live "scaled down" badge).
-  int computeSavedBytes(ExportFormat format) {
-    final bmp = _processedImage;
-    if (bmp == null) return 0;
+  /// Recomputes the expected export size for a chosen output format on a
+  /// background isolate, so switching JPG/PNG/WEBP never freezes the UI.
+  Future<int> computeSavedBytesAsync(ExportFormat format) async {
+    final encoded = _processedEncodedBytes;
+    if (encoded == null) return 0;
     try {
-      return ImageUtils.compressBitmapToBytes(
-        bmp,
-        quality: 100,
-        format: format,
-        sizeLimitKb: _currentSizeLimitKb(),
-      ).length;
+      return await compute(
+        recompressInBackground,
+        RecompressRequest(
+          processedBytes: encoded,
+          exportFormat: format.label,
+          sizeLimitKb: _currentSizeLimitKb(),
+        ),
+      );
     } catch (_) {
       return _processedSizeBytes;
     }
