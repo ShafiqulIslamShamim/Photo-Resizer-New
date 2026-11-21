@@ -7,17 +7,43 @@ import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
 
 import '../controllers/photo_controller.dart';
+import '../controllers/theme_controller.dart';
 import '../models/photo_models.dart';
+import '../widgets/route_scope.dart';
+import 'preview_screen.dart';
+import 'settings/settings_screen.dart';
 
 class CroppingScreen extends StatefulWidget {
   final PhotoController controller;
-  final VoidCallback onSettingsClick;
+  final VoidCallback? onSettingsClick;
+  final ThemeController? themeController;
 
   const CroppingScreen({
     super.key,
     required this.controller,
-    required this.onSettingsClick,
+    this.onSettingsClick,
+    this.themeController,
   });
+
+  static const String routeName = '/cropping';
+
+  static Route<dynamic> route({
+    required PhotoController controller,
+    ThemeController? themeController,
+    VoidCallback? onSettingsClick,
+  }) {
+    return MaterialPageRoute(
+      settings: const RouteSettings(name: routeName),
+      builder: (_) => RouteScope(
+        controller: controller,
+        child: CroppingScreen(
+          controller: controller,
+          themeController: themeController,
+          onSettingsClick: onSettingsClick,
+        ),
+      ),
+    );
+  }
 
   @override
   State<CroppingScreen> createState() => _CroppingScreenState();
@@ -57,73 +83,119 @@ class _CroppingScreenState extends State<CroppingScreen> {
   static const double _toolsHeight = 270.0;
 
   @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(CroppingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _handleBack() {
+    widget.controller.cancelCropping();
+    Navigator.of(context).pop();
+  }
+
+  void _openSettings() {
+    if (widget.onSettingsClick != null) {
+      widget.onSettingsClick!();
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => SettingsScreen(
+            themeController: widget.themeController ?? ThemeController(),
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final c = widget.controller;
     final colors = Theme.of(context).colorScheme;
-    final meta = c.originalMetadata;
-    if (meta == null || c.originalDisplayBytes == null) {
-      return const SizedBox.shrink();
-    }
 
-    final targetW = int.tryParse(c.targetWidthInput) ?? meta.width;
-    final targetH = int.tryParse(c.targetHeightInput) ?? meta.height;
-    final targetRatio = targetW / math.max(1, targetH);
+    return AnimatedBuilder(
+      animation: c,
+      builder: (context, _) {
+        final meta = c.originalMetadata;
+        final displayBytes = c.originalDisplayBytes;
+        if (meta == null || displayBytes == null) {
+          return const SizedBox.shrink();
+        }
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black.withValues(alpha: 0.5),
-        surfaceTintColor: Colors.transparent,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text(
-          'Crop & Zoom',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          tooltip: 'Back',
-          onPressed: c.cancelCropping,
-        ),
-        actions: [
-          IconButton(
-            key: const Key('settings_button'),
-            icon: const Icon(Icons.settings),
-            tooltip: 'Settings',
-            onPressed: widget.onSettingsClick,
-          ),
-        ],
-      ),
-      // Compute the viewport geometry once, during the build phase, so the
-      // tool bar can use it on the very first frame. The previous approach set
-      // it from the viewport's LayoutBuilder (layout phase), which left it
-      // uninitialized when the tool bar was built and threw a
-      // LateInitializationError on first open.
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final viewportHeight =
-              (constraints.maxHeight - _toolsHeight).clamp(0.0, double.infinity).toDouble();
-          final geo = _computeGeo(
-            BoxConstraints(maxWidth: constraints.maxWidth, maxHeight: viewportHeight),
-            meta.width,
-            meta.height,
-            targetRatio,
-            c,
-          );
-          return Column(
-            children: [
-              SizedBox(
-                width: double.infinity,
-                height: viewportHeight,
-                child: _buildViewport(context, c, geo, colors),
-              ),
-              SizedBox(
-                height: _toolsHeight,
-                child: _buildTools(context, c, geo, colors),
+        final targetW = int.tryParse(c.targetWidthInput) ?? meta.width;
+        final targetH = int.tryParse(c.targetHeightInput) ?? meta.height;
+        final targetRatio = targetW / math.max(1, targetH);
+
+        return Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black.withValues(alpha: 0.5),
+            surfaceTintColor: Colors.transparent,
+            iconTheme: const IconThemeData(color: Colors.white),
+            title: const Text(
+              'Crop & Zoom',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              tooltip: 'Back',
+              onPressed: _handleBack,
+            ),
+            actions: [
+              IconButton(
+                key: const Key('settings_button'),
+                icon: const Icon(Icons.settings),
+                tooltip: 'Settings',
+                onPressed: _openSettings,
               ),
             ],
-          );
-        },
-      ),
+          ),
+          body: LayoutBuilder(
+            builder: (context, constraints) {
+              final viewportHeight =
+                  (constraints.maxHeight - _toolsHeight).clamp(0.0, double.infinity).toDouble();
+              final geo = _computeGeo(
+                BoxConstraints(maxWidth: constraints.maxWidth, maxHeight: viewportHeight),
+                meta.width,
+                meta.height,
+                targetRatio,
+                c,
+              );
+              return Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    height: viewportHeight,
+                    child: _buildViewport(context, c, geo, colors),
+                  ),
+                  SizedBox(
+                    height: _toolsHeight,
+                    child: _buildTools(context, c, geo, colors),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -305,6 +377,8 @@ class _CroppingScreenState extends State<CroppingScreen> {
                     ..rotateZ((_fineRotation / 100) * 45 * math.pi / 180)),
               child: Image.memory(
                 bytes,
+                key: ValueKey('${c.rotationTurns}_${bytes.length}'),
+                gaplessPlayback: true,
                 fit: BoxFit.contain,
                 filterQuality: FilterQuality.high,
               ),
@@ -463,8 +537,8 @@ class _CroppingScreenState extends State<CroppingScreen> {
               icon: Icons.check,
               color: colors.primary,
               testKey: 'confirm_crop_button',
-              onTap: () {
-                c.confirmCropAndProcess(
+              onTap: () async {
+                await c.confirmCropAndProcess(
                   pixelLeft: 0,
                   pixelTop: 0,
                   croppedW: c.originalMetadata!.width,
@@ -476,6 +550,15 @@ class _CroppingScreenState extends State<CroppingScreen> {
                     _points[3].dx, _points[3].dy,
                   ],
                 );
+                if (!context.mounted) return;
+                if (c.processedDisplayBytes != null) {
+                  Navigator.of(context).push(
+                    PreviewScreen.route(
+                      controller: c,
+                      themeController: widget.themeController,
+                    ),
+                  );
+                }
               },
             ),
           ],
@@ -592,7 +675,17 @@ class _CroppingScreenState extends State<CroppingScreen> {
                   active: false,
                   colors: colors,
                   inactiveColor: Colors.grey,
-                  onTap: c.rotateOriginal,
+                  onTap: () async {
+                    await c.rotateOriginal();
+                    if (mounted) {
+                      setState(() {
+                        _scale = 1.0;
+                        _offsetX = 0.0;
+                        _offsetY = 0.0;
+                        _fineRotation = 0.0;
+                      });
+                    }
+                  },
                 ),
               ],
             ),
@@ -603,7 +696,7 @@ class _CroppingScreenState extends State<CroppingScreen> {
                 _circleIconButton(
                   icon: Icons.close,
                   color: Colors.grey.shade800,
-                  onTap: c.cancelCropping,
+                  onTap: _handleBack,
                 ),
                 const Text(
                   'Framing',
@@ -622,7 +715,7 @@ class _CroppingScreenState extends State<CroppingScreen> {
         );
   }
 
-  void _confirmCrop(PhotoController c, _Geo g) {
+  Future<void> _confirmCrop(PhotoController c, _Geo g) async {
     final meta = c.originalMetadata!;
     final srcX1 = (g.cropX1 - g.containerW / 2 - _offsetX) / _scale + g.containerW / 2;
     final srcY1 = (g.cropY1 - g.containerH / 2 - _offsetY) / _scale + g.containerH / 2;
@@ -636,13 +729,22 @@ class _CroppingScreenState extends State<CroppingScreen> {
     final pxTop = ((relY1 / g.baseH) * meta.height).round().clamp(0, meta.height);
     final pxRight = ((relX2 / g.baseW) * meta.width).round().clamp(0, meta.width);
     final pxBottom = ((relY2 / g.baseH) * meta.height).round().clamp(0, meta.height);
-    c.confirmCropAndProcess(
+    await c.confirmCropAndProcess(
       pixelLeft: pxLeft,
       pixelTop: pxTop,
       croppedW: math.max(1, pxRight - pxLeft),
       croppedH: math.max(1, pxBottom - pxTop),
       fineRotation: (_fineRotation / 100) * 45,
     );
+    if (!mounted) return;
+    if (c.processedDisplayBytes != null) {
+      Navigator.of(context).push(
+        PreviewScreen.route(
+          controller: c,
+          themeController: widget.themeController,
+        ),
+      );
+    }
   }
 
   Widget _circleIconButton({

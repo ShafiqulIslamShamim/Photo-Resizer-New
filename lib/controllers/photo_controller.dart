@@ -76,6 +76,7 @@ class PhotoController extends ChangeNotifier {
   /// Original file bytes and 90° rotations.
   Uint8List? _sourceBytes;
   int _rotationTurns = 0;
+  int get rotationTurns => _rotationTurns;
 
   int _processedWidth = 0;
   int get processedWidth => _processedWidth;
@@ -444,8 +445,8 @@ class PhotoController extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   Future<void> rotateOriginal() async {
     final oldMeta = _originalMetadata;
-    final display = _originalDisplayBytes;
-    if (oldMeta == null || display == null) return;
+    final source = _sourceBytes;
+    if (oldMeta == null || source == null) return;
     _loading = true;
     notifyListeners();
     await WidgetsBinding.instance.endOfFrame;
@@ -456,8 +457,12 @@ class PhotoController extends ChangeNotifier {
         width: oldMeta.height,
         height: oldMeta.width,
       );
-      // Fast rotation of display preview in native C++ (~5ms)
-      _originalDisplayBytes = await ImageUtils.rotateDisplayBytes(display);
+      // Fast regeneration of rotated display preview directly from source
+      _originalDisplayBytes = await ImageUtils.createDisplayPreview(
+        source,
+        maxSize: 1400,
+        rotationTurns: nextTurns,
+      );
 
       if (selectedPresetRatio == 'Original') {
         targetWidthInput = _originalMetadata!.width.toString();

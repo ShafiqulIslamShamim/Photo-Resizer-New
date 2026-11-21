@@ -4,20 +4,45 @@ import 'dart:typed_data';
 import 'package:material_ui/material_ui.dart';
 
 import '../controllers/photo_controller.dart';
+import '../controllers/theme_controller.dart';
 import '../models/photo_models.dart';
 import '../util/export_service.dart';
 import '../util/image_utils.dart';
 import '../widgets/app_bar_circle_button.dart';
+import '../widgets/route_scope.dart';
+import 'settings/settings_screen.dart';
 
 class PreviewScreen extends StatefulWidget {
   final PhotoController controller;
-  final VoidCallback onSettingsClick;
+  final VoidCallback? onSettingsClick;
+  final ThemeController? themeController;
 
   const PreviewScreen({
     super.key,
     required this.controller,
-    required this.onSettingsClick,
+    this.onSettingsClick,
+    this.themeController,
   });
+
+  static const String routeName = '/preview';
+
+  static Route<dynamic> route({
+    required PhotoController controller,
+    ThemeController? themeController,
+    VoidCallback? onSettingsClick,
+  }) {
+    return MaterialPageRoute(
+      settings: const RouteSettings(name: routeName),
+      builder: (_) => RouteScope(
+        controller: controller,
+        child: PreviewScreen(
+          controller: controller,
+          themeController: themeController,
+          onSettingsClick: onSettingsClick,
+        ),
+      ),
+    );
+  }
 
   @override
   State<PreviewScreen> createState() => _PreviewScreenState();
@@ -88,7 +113,20 @@ class _PreviewScreenState extends State<PreviewScreen> {
                 icon: Icons.settings,
                 tooltip: 'Settings',
                 colorScheme: colors,
-                onPressed: widget.onSettingsClick,
+                onPressed: () {
+                  if (widget.onSettingsClick != null) {
+                    widget.onSettingsClick!();
+                  } else {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => SettingsScreen(
+                          themeController:
+                              widget.themeController ?? ThemeController(),
+                        ),
+                      ),
+                    );
+                  }
+                },
               ),
             ],
           ),
@@ -139,7 +177,10 @@ class _PreviewScreenState extends State<PreviewScreen> {
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        onPressed: c.reset,
+                        onPressed: () {
+                          c.reset();
+                          Navigator.of(context).popUntil((route) => route.isFirst);
+                        },
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [

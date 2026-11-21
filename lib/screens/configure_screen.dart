@@ -6,21 +6,49 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import '../controllers/photo_controller.dart';
+import '../controllers/theme_controller.dart';
 import '../models/photo_models.dart';
 import '../util/image_utils.dart';
 import '../widgets/app_bar_circle_button.dart';
+import '../widgets/route_scope.dart';
+import 'cropping_screen.dart';
+import 'settings/settings_screen.dart';
 
 class ConfigureScreen extends StatefulWidget {
   final PhotoController controller;
-  final VoidCallback onBack;
-  final VoidCallback onSettingsClick;
+  final VoidCallback? onBack;
+  final VoidCallback? onSettingsClick;
+  final ThemeController? themeController;
 
   const ConfigureScreen({
     super.key,
     required this.controller,
-    required this.onBack,
-    required this.onSettingsClick,
+    this.onBack,
+    this.onSettingsClick,
+    this.themeController,
   });
+
+  static const String routeName = '/configure';
+
+  static Route<dynamic> route({
+    required PhotoController controller,
+    ThemeController? themeController,
+    VoidCallback? onBack,
+    VoidCallback? onSettingsClick,
+  }) {
+    return MaterialPageRoute(
+      settings: const RouteSettings(name: routeName),
+      builder: (_) => RouteScope(
+        controller: controller,
+        child: ConfigureScreen(
+          controller: controller,
+          themeController: themeController,
+          onBack: onBack,
+          onSettingsClick: onSettingsClick,
+        ),
+      ),
+    );
+  }
 
   @override
   State<ConfigureScreen> createState() => _ConfigureScreenState();
@@ -110,7 +138,13 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
               tooltip: 'Navigate back',
               buttonKey: const Key('back_button'),
               colorScheme: colors,
-              onPressed: widget.onBack,
+              onPressed: () {
+                if (widget.onBack != null) {
+                  widget.onBack!();
+                } else {
+                  Navigator.of(context).pop();
+                }
+              },
             ),
             title: const Text(
               'Resize Preferences',
@@ -121,7 +155,20 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
                 icon: Icons.settings,
                 tooltip: 'Settings',
                 colorScheme: colors,
-                onPressed: widget.onSettingsClick,
+                onPressed: () {
+                  if (widget.onSettingsClick != null) {
+                    widget.onSettingsClick!();
+                  } else {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => SettingsScreen(
+                          themeController:
+                              widget.themeController ?? ThemeController(),
+                        ),
+                      ),
+                    );
+                  }
+                },
               ),
             ],
           ),
@@ -734,6 +781,12 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
                     );
                   } else {
                     c.openCropping();
+                    Navigator.of(context).push(
+                      CroppingScreen.route(
+                        controller: widget.controller,
+                        themeController: widget.themeController,
+                      ),
+                    );
                   }
                 },
                 child: const Row(
