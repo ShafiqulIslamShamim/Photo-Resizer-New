@@ -5,7 +5,6 @@
 import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
-import 'package:image/image.dart' as img;
 
 import '../controllers/photo_controller.dart';
 import '../models/photo_models.dart';
@@ -61,11 +60,13 @@ class _CroppingScreenState extends State<CroppingScreen> {
   Widget build(BuildContext context) {
     final c = widget.controller;
     final colors = Theme.of(context).colorScheme;
-    final bitmap = c.originalImage;
-    if (bitmap == null) return const SizedBox.shrink();
+    final meta = c.originalMetadata;
+    if (meta == null || c.originalDisplayBytes == null) {
+      return const SizedBox.shrink();
+    }
 
-    final targetW = int.tryParse(c.targetWidthInput) ?? bitmap.width;
-    final targetH = int.tryParse(c.targetHeightInput) ?? bitmap.height;
+    final targetW = int.tryParse(c.targetWidthInput) ?? meta.width;
+    final targetH = int.tryParse(c.targetHeightInput) ?? meta.height;
     final targetRatio = targetW / math.max(1, targetH);
 
     return Scaffold(
@@ -103,7 +104,8 @@ class _CroppingScreenState extends State<CroppingScreen> {
               (constraints.maxHeight - _toolsHeight).clamp(0.0, double.infinity).toDouble();
           final geo = _computeGeo(
             BoxConstraints(maxWidth: constraints.maxWidth, maxHeight: viewportHeight),
-            bitmap,
+            meta.width,
+            meta.height,
             targetRatio,
             c,
           );
@@ -128,11 +130,17 @@ class _CroppingScreenState extends State<CroppingScreen> {
   // ---------------------------------------------------------------------------
   // Geometry (mirrors the Android BoxWithConstraints math)
   // ---------------------------------------------------------------------------
-  _Geo _computeGeo(BoxConstraints constraints, img.Image bitmap, double targetRatio, PhotoController c) {
+  _Geo _computeGeo(
+    BoxConstraints constraints,
+    int imageWidth,
+    int imageHeight,
+    double targetRatio,
+    PhotoController c,
+  ) {
     final containerW = constraints.maxWidth;
     final containerH = constraints.maxHeight;
 
-    final imageAspect = bitmap.width / bitmap.height;
+    final imageAspect = imageWidth / imageHeight;
     final containerAspect = containerW / math.max(1.0, containerH);
 
     late final double baseW;
@@ -459,8 +467,8 @@ class _CroppingScreenState extends State<CroppingScreen> {
                 c.confirmCropAndProcess(
                   pixelLeft: 0,
                   pixelTop: 0,
-                  croppedW: c.originalImage!.width,
-                  croppedH: c.originalImage!.height,
+                  croppedW: c.originalMetadata!.width,
+                  croppedH: c.originalMetadata!.height,
                   perspectivePoints: [
                     _points[0].dx, _points[0].dy,
                     _points[1].dx, _points[1].dy,
@@ -615,7 +623,7 @@ class _CroppingScreenState extends State<CroppingScreen> {
   }
 
   void _confirmCrop(PhotoController c, _Geo g) {
-    final bitmap = c.originalImage!;
+    final meta = c.originalMetadata!;
     final srcX1 = (g.cropX1 - g.containerW / 2 - _offsetX) / _scale + g.containerW / 2;
     final srcY1 = (g.cropY1 - g.containerH / 2 - _offsetY) / _scale + g.containerH / 2;
     final srcX2 = (g.cropX2 - g.containerW / 2 - _offsetX) / _scale + g.containerW / 2;
@@ -624,10 +632,10 @@ class _CroppingScreenState extends State<CroppingScreen> {
     final relY1 = srcY1 - g.y1;
     final relX2 = srcX2 - g.x1;
     final relY2 = srcY2 - g.y1;
-    final pxLeft = ((relX1 / g.baseW) * bitmap.width).round().clamp(0, bitmap.width);
-    final pxTop = ((relY1 / g.baseH) * bitmap.height).round().clamp(0, bitmap.height);
-    final pxRight = ((relX2 / g.baseW) * bitmap.width).round().clamp(0, bitmap.width);
-    final pxBottom = ((relY2 / g.baseH) * bitmap.height).round().clamp(0, bitmap.height);
+    final pxLeft = ((relX1 / g.baseW) * meta.width).round().clamp(0, meta.width);
+    final pxTop = ((relY1 / g.baseH) * meta.height).round().clamp(0, meta.height);
+    final pxRight = ((relX2 / g.baseW) * meta.width).round().clamp(0, meta.width);
+    final pxBottom = ((relY2 / g.baseH) * meta.height).round().clamp(0, meta.height);
     c.confirmCropAndProcess(
       pixelLeft: pxLeft,
       pixelTop: pxTop,

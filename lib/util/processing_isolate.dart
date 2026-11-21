@@ -61,6 +61,74 @@ class ProcessResult {
   });
 }
 
+/// Request for decoding a freshly picked image in the background.
+class LoadRequest {
+  final Uint8List bytes;
+  final String? name;
+  final String? path;
+  final String? mimeType;
+  final int rotationTurns;
+
+  const LoadRequest({
+    required this.bytes,
+    this.name,
+    this.path,
+    this.mimeType,
+    this.rotationTurns = 0,
+  });
+}
+
+/// Sendable result of the background image load.
+class LoadResult {
+  final int width;
+  final int height;
+  final int sizeBytes;
+  final String formatLabel;
+  final String? originalName;
+  final String? sourcePath;
+  final Uint8List displayBytes;
+
+  const LoadResult({
+    required this.width,
+    required this.height,
+    required this.sizeBytes,
+    required this.formatLabel,
+    required this.originalName,
+    required this.sourcePath,
+    required this.displayBytes,
+  });
+}
+
+/// Decodes a high-resolution photo and produces the small display preview, all
+/// in a background isolate so the UI never freezes while picking an image.
+LoadResult loadImageInBackground(LoadRequest request) {
+  var image = ImageUtils.decodeCorrected(request.bytes);
+  if (image == null) {
+    throw StateError('Unable to decode image');
+  }
+  if (request.rotationTurns != 0) {
+    image = img.copyRotate(
+      image,
+      angle: 90.0 * request.rotationTurns,
+      interpolation: img.Interpolation.cubic,
+    );
+  }
+  final display = ImageUtils.createDisplayCopy(image);
+  return LoadResult(
+    width: image.width,
+    height: image.height,
+    sizeBytes: request.bytes.length,
+    formatLabel: ImageUtils.detectFormat(
+      request.bytes,
+      name: request.name,
+      mimeType: request.mimeType,
+    ).label,
+    originalName: request.name,
+    sourcePath: request.path,
+    displayBytes: ImageUtils.toJpegBytes(display),
+  );
+}
+
 /// Request used to recompute the export size for a different format.
 class RecompressRequest {
   final Uint8List processedBytes;
@@ -85,6 +153,18 @@ int recompressInBackground(RecompressRequest request) {
     format: ExportFormatX.fromLabel(request.exportFormat),
     sizeLimitKb: request.sizeLimitKb,
   ).length;
+}
+
+/// Encodes the final export bytes off the UI thread.
+Uint8List encodeForExportInBackground(RecompressRequest request) {
+  final image = img.decodeImage(request.processedBytes);
+  if (image == null) return Uint8List(0);
+  return ImageUtils.compressBitmapToBytes(
+    image,
+    quality: 100,
+    format: ExportFormatX.fromLabel(request.exportFormat),
+    sizeLimitKb: request.sizeLimitKb,
+  );
 }
 
 /// Top-level entry point for `compute()`.

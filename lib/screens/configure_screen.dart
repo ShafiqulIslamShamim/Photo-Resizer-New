@@ -264,22 +264,28 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
             width: fillWidth ? double.infinity : null,
             height: height,
             padding: padding,
-            // With bounded Wrap constraints, a non-null alignment makes the
-            // Container fill the whole row. Chips must stay content-sized so
-            // they flow horizontally like Compose's FlowRow.
-            alignment: fillWidth ? Alignment.center : null,
+            // A non-null `alignment` would make this Container fill the whole
+            // row inside Wrap, stacking chips vertically. A Row with min size
+            // keeps chips content-sized while still centering the label.
             decoration: BoxDecoration(
               color: selected ? colors.primary : Colors.transparent,
               borderRadius: BorderRadius.circular(radius),
             ),
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: fontSize,
-                fontWeight: FontWeight.bold,
-                color: selected ? colors.onPrimary : colors.onSurfaceVariant,
-              ),
+            child: Row(
+              mainAxisSize: fillWidth ? MainAxisSize.max : MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: fontSize,
+                    fontWeight: FontWeight.bold,
+                    color: selected ? colors.onPrimary : colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
           ),
         ),

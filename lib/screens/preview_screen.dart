@@ -317,7 +317,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
                       style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
                     ),
                     Text(
-                      '${c.processedImage?.width ?? 0} × ${c.processedImage?.height ?? 0} px',
+                      '${c.processedWidth} × ${c.processedHeight} px',
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                     ),
                   ],
@@ -610,7 +610,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
 
   Future<void> _export(PhotoController c) async {
     try {
-      final bytes = c.encodeForExport(_format);
+      final bytes = await c.encodeForExport(_format);
       final name = '${c.suggestedExportName()}.${_format.extension}';
       final ok = await ExportService.saveBytes(bytes, name);
       if (!mounted) return;

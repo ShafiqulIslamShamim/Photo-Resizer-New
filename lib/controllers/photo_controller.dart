@@ -5,10 +5,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show WidgetsBinding;
-import 'package:image/image.dart' as img;
 
 import '../models/photo_models.dart';
-import '../util/image_utils.dart';
 import '../util/processing_isolate.dart';
 
 class PhotoController extends ChangeNotifier {
@@ -71,9 +69,6 @@ class PhotoController extends ChangeNotifier {
   ImageMetadata? _originalMetadata;
   ImageMetadata? get originalMetadata => _originalMetadata;
 
-  img.Image? _originalImage;
-  img.Image? get originalImage => _originalImage;
-
   Uint8List? _originalDisplayBytes;
   Uint8List? get originalDisplayBytes => _originalDisplayBytes;
 
@@ -82,8 +77,10 @@ class PhotoController extends ChangeNotifier {
   Uint8List? _sourceBytes;
   int _rotationTurns = 0;
 
-  img.Image? _processedImage;
-  img.Image? get processedImage => _processedImage;
+  int _processedWidth = 0;
+  int get processedWidth => _processedWidth;
+  int _processedHeight = 0;
+  int get processedHeight => _processedHeight;
 
   Uint8List? _processedDisplayBytes;
   Uint8List? get processedDisplayBytes => _processedDisplayBytes;
@@ -121,11 +118,11 @@ class PhotoController extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   void reset() {
     _originalMetadata = null;
-    _originalImage = null;
     _originalDisplayBytes = null;
     _sourceBytes = null;
     _rotationTurns = 0;
-    _processedImage = null;
+    _processedWidth = 0;
+    _processedHeight = 0;
     _processedDisplayBytes = null;
     _processedEncodedBytes = null;
     _processedSizeBytes = 0;
@@ -199,32 +196,30 @@ class PhotoController extends ChangeNotifier {
     // before the spinner ever became visible.
     await WidgetsBinding.instance.endOfFrame;
     try {
-      // Decode once and reuse the result for both metadata and display pixels.
-      final decoded = ImageUtils.decodeCorrected(bytes);
-      if (decoded == null) {
-        _transientMessage = 'Failed to inspect image details';
-        return;
-      }
-      final metadata = ImageUtils.buildMetadata(
-        bytes,
-        name: name,
-        path: path,
-        mimeType: mimeType,
-        decodedImage: decoded,
+      // Decode + downscale + preview encode all happen on a background isolate.
+      final loaded = await compute(
+        loadImageInBackground,
+        LoadRequest(
+          bytes: bytes,
+          name: name,
+          path: path,
+          mimeType: mimeType,
+        ),
       );
-      if (metadata == null) {
-        _transientMessage = 'Failed to inspect image details';
-        return;
-      }
 
-      _originalMetadata = metadata;
-      _originalImage = decoded;
+      _originalMetadata = ImageMetadata(
+        width: loaded.width,
+        height: loaded.height,
+        sizeBytes: loaded.sizeBytes,
+        sourcePath: loaded.sourcePath,
+        originalName: loaded.originalName,
+        format: ExportFormatX.fromLabel(loaded.formatLabel),
+      );
       _sourceBytes = bytes;
       _rotationTurns = 0;
-      final display = ImageUtils.createDisplayCopy(decoded);
-      _originalDisplayBytes = ImageUtils.toPngBytes(display);
-      targetWidthInput = metadata.width.toString();
-      targetHeightInput = metadata.height.toString();
+      _originalDisplayBytes = loaded.displayBytes;
+      targetWidthInput = loaded.width.toString();
+      targetHeightInput = loaded.height.toString();
       _screenState = ScreenState.configure;
     } catch (e) {
       _reportFailure(
@@ -428,31 +423,37 @@ class PhotoController extends ChangeNotifier {
   // Processing
   // ---------------------------------------------------------------------------
   Future<void> rotateOriginal() async {
-    final bitmap = _originalImage;
-    if (bitmap == null) return;
+    final source = _sourceBytes;
+    final oldMeta = _originalMetadata;
+    if (source == null || oldMeta == null) return;
     _loading = true;
     notifyListeners();
-    await Future<void>.delayed(Duration.zero);
+    await WidgetsBinding.instance.endOfFrame;
     try {
-      final rotated = ImageUtils.rotate90(bitmap);
-      _originalImage = rotated;
-      _rotationTurns = (_rotationTurns + 1) % 4;
-      final oldMeta = _originalMetadata;
-      if (oldMeta != null) {
-        _originalMetadata = oldMeta.copyWith(
-          width: rotated.width,
-          height: rotated.height,
-        );
-        if (selectedPresetRatio == 'Original') {
-          targetWidthInput = rotated.width.toString();
-          targetHeightInput = rotated.height.toString();
-        } else {
-          selectPreset(selectedPresetRatio);
-        }
-      }
-      _originalDisplayBytes = ImageUtils.toPngBytes(
-        ImageUtils.createDisplayCopy(rotated),
+      final nextTurns = (_rotationTurns + 1) % 4;
+      // Regenerate only the small preview in the isolate; no full bitmap is
+      // ever kept or rotated on the UI thread.
+      final loaded = await compute(
+        loadImageInBackground,
+        LoadRequest(
+          bytes: source,
+          name: oldMeta.originalName,
+          path: oldMeta.sourcePath,
+          rotationTurns: nextTurns,
+        ),
       );
+      _rotationTurns = nextTurns;
+      _originalMetadata = oldMeta.copyWith(
+        width: loaded.width,
+        height: loaded.height,
+      );
+      _originalDisplayBytes = loaded.displayBytes;
+      if (selectedPresetRatio == 'Original') {
+        targetWidthInput = loaded.width.toString();
+        targetHeightInput = loaded.height.toString();
+      } else {
+        selectPreset(selectedPresetRatio);
+      }
     } catch (e) {
       // Compose silently ignores non-OOM rotation failures.
       _reportFailure(
@@ -478,8 +479,8 @@ class PhotoController extends ChangeNotifier {
     List<double>? perspectivePoints,
   }) async {
     final source = _sourceBytes;
-    final bitmap = _originalImage;
-    if (source == null || bitmap == null) return;
+    final meta = _originalMetadata;
+    if (source == null || meta == null) return;
     _loading = true;
     notifyListeners();
     // Let the loading overlay paint before the isolate starts.
@@ -496,8 +497,8 @@ class PhotoController extends ChangeNotifier {
         perspectiveX: perspectiveX,
         perspectiveY: perspectiveY,
         perspectivePoints: perspectivePoints,
-        targetWidth: int.tryParse(targetWidthInput) ?? bitmap.width,
-        targetHeight: int.tryParse(targetHeightInput) ?? bitmap.height,
+        targetWidth: int.tryParse(targetWidthInput) ?? meta.width,
+        targetHeight: int.tryParse(targetHeightInput) ?? meta.height,
         cutShape: selectedCutShape.label,
         exportFormat: (_originalMetadata?.format ?? ExportFormat.jpg).label,
         sizeLimitKb: _currentSizeLimitKb(),
@@ -507,7 +508,8 @@ class PhotoController extends ChangeNotifier {
       // responsive, so Android never shows an ANR / "App isn't responding".
       final result = await compute(processPhotoInBackground, request);
 
-      _processedImage = img.decodeImage(result.bytes);
+      _processedWidth = result.width;
+      _processedHeight = result.height;
       _processedEncodedBytes = result.bytes;
       _processedDisplayBytes = result.displayBytes;
       _processedSizeBytes = result.bytes.length;
@@ -551,13 +553,17 @@ class PhotoController extends ChangeNotifier {
     }
   }
 
-  /// Encodes the processed image for export in the chosen format.
-  Uint8List encodeForExport(ExportFormat format) {
-    return ImageUtils.compressBitmapToBytes(
-      _processedImage!,
-      quality: 100,
-      format: format,
-      sizeLimitKb: _currentSizeLimitKb(),
+  /// Encodes the processed image for export in the chosen format, off-thread.
+  Future<Uint8List> encodeForExport(ExportFormat format) async {
+    final encoded = _processedEncodedBytes;
+    if (encoded == null) return Uint8List(0);
+    return compute(
+      encodeForExportInBackground,
+      RecompressRequest(
+        processedBytes: encoded,
+        exportFormat: format.label,
+        sizeLimitKb: _currentSizeLimitKb(),
+      ),
     );
   }
 

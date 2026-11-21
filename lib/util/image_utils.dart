@@ -89,31 +89,8 @@ class ImageUtils {
     }
   }
 
-  /// Builds the metadata object from image bytes.
-  ///
-  /// Pass [decodedImage] when the caller has already decoded the same bytes,
-  /// so a large photo is never decoded twice.
-  static ImageMetadata? buildMetadata(
-    Uint8List bytes, {
-    String? name,
-    String? path,
-    String? mimeType,
-    img.Image? decodedImage,
-  }) {
-    final image = decodedImage ?? decodeCorrected(bytes);
-    if (image == null) return null;
-    return ImageMetadata(
-      width: image.width,
-      height: image.height,
-      sizeBytes: bytes.length,
-      sourcePath: path,
-      originalName: name,
-      format: detectFormat(bytes, name: name, mimeType: mimeType),
-    );
-  }
-
   /// Downscaled copy used only for fast UI display (source stays full resolution).
-  static img.Image createDisplayCopy(img.Image source, {int maxSize = 1800}) {
+  static img.Image createDisplayCopy(img.Image source, {int maxSize = 1400}) {
     final longest = math.max(source.width, source.height);
     if (longest <= maxSize) return source;
     final scale = maxSize / longest;
@@ -124,6 +101,10 @@ class ImageUtils {
       interpolation: img.Interpolation.linear,
     );
   }
+
+  /// Fast JPEG encoding for preview images (no transparency needed). Much
+  /// quicker than PNG for high-resolution photos.
+  static Uint8List toJpegBytes(img.Image image) => img.encodeJpg(image, quality: 88);
 
   static Uint8List toPngBytes(img.Image image) => img.encodePng(image);
 
@@ -157,9 +138,6 @@ class ImageUtils {
       interpolation: img.Interpolation.cubic,
     );
   }
-
-  static img.Image rotate90(img.Image source) =>
-      img.copyRotate(source, angle: 90, interpolation: img.Interpolation.cubic);
 
   /// Square / circle / triangle mask with transparent exterior.
   static img.Image applyShapeMask(img.Image source, CutShape shape) {
