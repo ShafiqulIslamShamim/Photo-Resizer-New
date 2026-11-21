@@ -36,6 +36,34 @@ class PhotoController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Mirrors the ViewModel.kt catches: OutOfMemoryError shows the memory dialog,
+  /// every other Throwable becomes a one-off Toast (or is ignored for rotation).
+  bool _isOutOfMemory(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('out of memory') ||
+        message.contains('oom') ||
+        message.contains('allocation failed') ||
+        message.contains('could not allocate');
+  }
+
+  String _errorMessage(Object error) {
+    final text = error.toString().trim();
+    final colon = text.indexOf(':');
+    return colon >= 0 ? text.substring(colon + 1).trim() : text;
+  }
+
+  void _reportFailure(
+    Object error, {
+    required String oomMessage,
+    String? toastPrefix,
+  }) {
+    if (_isOutOfMemory(error)) {
+      _oomDialogMessage = oomMessage;
+    } else if (toastPrefix != null) {
+      _transientMessage = toastPrefix + _errorMessage(error);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Images
   // ---------------------------------------------------------------------------
@@ -190,9 +218,13 @@ class PhotoController extends ChangeNotifier {
       targetWidthInput = metadata.width.toString();
       targetHeightInput = metadata.height.toString();
       _screenState = ScreenState.configure;
-    } catch (_) {
-      _oomDialogMessage =
-          'Your device memory is not capable of loading an image at this high resolution. Please try selecting a lower resolution photo or decrease the image resolution.';
+    } catch (e) {
+      _reportFailure(
+        e,
+        oomMessage:
+            'Your device memory is not capable of loading an image at this high resolution. Please try selecting a lower resolution photo or decrease the image resolution.',
+        toastPrefix: 'Failed to load image: ',
+      );
     } finally {
       _loading = false;
       notifyListeners();
@@ -413,9 +445,13 @@ class PhotoController extends ChangeNotifier {
       _originalDisplayBytes = ImageUtils.toPngBytes(
         ImageUtils.createDisplayCopy(rotated),
       );
-    } catch (_) {
-      _oomDialogMessage =
-          'Your device memory is not capable of rotating an image at this resolution. Please try decreasing the resolution first.';
+    } catch (e) {
+      // Compose silently ignores non-OOM rotation failures.
+      _reportFailure(
+        e,
+        oomMessage:
+            'Your device memory is not capable of rotating an image at this resolution. Please try decreasing the resolution first.',
+      );
     } finally {
       _loading = false;
       notifyListeners();
@@ -467,9 +503,13 @@ class PhotoController extends ChangeNotifier {
       _processedDisplayBytes = result.displayBytes;
       _processedSizeBytes = result.bytes.length;
       _screenState = ScreenState.preview;
-    } catch (_) {
-      _oomDialogMessage =
-          'Your device memory is not capable of processing this image resolution. Please decrease the target resolution or reduce the cropped area.';
+    } catch (e) {
+      _reportFailure(
+        e,
+        oomMessage:
+            'Your device memory is not capable of processing this image resolution. Please decrease the target resolution or reduce the cropped area.',
+        toastPrefix: 'Processing error: ',
+      );
     } finally {
       _loading = false;
       notifyListeners();

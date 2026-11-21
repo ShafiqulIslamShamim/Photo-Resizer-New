@@ -71,7 +71,9 @@ class _PreviewScreenState extends State<PreviewScreen> {
               tooltip: 'Navigate back',
               buttonKey: const Key('back_button'),
               colorScheme: colors,
-              onPressed: c.backToConfigure,
+              // Pop the actual route so we return to the crop screen (the
+              // previous MaterialPageRoute), matching normal stack navigation.
+              onPressed: () => Navigator.of(context).pop(),
             ),
             title: const Text(
               'Optimization Results',
@@ -158,57 +160,59 @@ class _PreviewScreenState extends State<PreviewScreen> {
     final pct = meta.sizeBytes > 0
         ? (((meta.sizeBytes - saved) / meta.sizeBytes) * 100).toInt().clamp(0, 100)
         : 0;
-    return Card(
-      color: colors.primaryContainer,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    return SizedBox(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Compose's CircleShape is RoundedCornerShape(percent = 50), i.e. a
-            // pill. BoxShape.circle would shrink to the text height and clip it.
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: colors.primary,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                '$pct% Scaled Down',
-                style: TextStyle(
-                  color: colors.onPrimary,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
+      child: Card(
+        color: colors.primaryContainer,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        margin: const EdgeInsets.only(bottom: 16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Compose's CircleShape is RoundedCornerShape(percent = 50), i.e. a
+              // pill. BoxShape.circle would shrink to the text height and clip it.
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: colors.primary,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '$pct% Scaled Down',
+                  style: TextStyle(
+                    color: colors.onPrimary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Compressed ${ImageUtils.formatFileSize(meta.sizeBytes)} to ${ImageUtils.formatFileSize(saved)}',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: colors.onPrimaryContainer,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Compressed ${ImageUtils.formatFileSize(meta.sizeBytes)} to ${ImageUtils.formatFileSize(saved)}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: colors.onPrimaryContainer,
+                      ),
                     ),
-                  ),
-                  Text(
-                    'A perfect slim copy optimized for online portals, applications, or social sharing.',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: colors.onPrimaryContainer.withValues(alpha: 0.8),
+                    Text(
+                      'A perfect slim copy optimized for online portals, applications, or social sharing.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colors.onPrimaryContainer.withValues(alpha: 0.8),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
