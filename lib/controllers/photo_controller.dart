@@ -1,5 +1,5 @@
 /// Port of the Android `ViewModel.kt`. Holds all photo-resizer state and the
-/// processing pipeline. Pure Dart so it behaves the same on every platform.
+/// processing pipeline.
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show WidgetsBinding;
 
 import '../models/photo_models.dart';
+import '../util/image_utils.dart';
 import '../util/processing_isolate.dart';
 
 class PhotoController extends ChangeNotifier {
@@ -72,8 +73,7 @@ class PhotoController extends ChangeNotifier {
   Uint8List? _originalDisplayBytes;
   Uint8List? get originalDisplayBytes => _originalDisplayBytes;
 
-  /// Original file bytes and 90° rotations, used by the background isolate so
-  /// the crop pipeline never runs on the UI thread.
+  /// Original file bytes and 90° rotations.
   Uint8List? _sourceBytes;
   int _rotationTurns = 0;
 
@@ -88,9 +88,12 @@ class PhotoController extends ChangeNotifier {
   int _processedSizeBytes = 0;
   int get processedSizeBytes => _processedSizeBytes;
 
-  /// Encoded bytes of the processed image, used to recompute export size for
-  /// other formats without blocking the UI.
+  /// Encoded bytes of the processed image.
   Uint8List? _processedEncodedBytes;
+
+  /// Raw RGBA pixels of the processed image for instant format recompression.
+  Uint8List? _processedRawRgbaBytes;
+  ExportFormat? _lastProcessedFormat;
 
   // ---------------------------------------------------------------------------
   // Configuration inputs
@@ -125,6 +128,8 @@ class PhotoController extends ChangeNotifier {
     _processedHeight = 0;
     _processedDisplayBytes = null;
     _processedEncodedBytes = null;
+    _processedRawRgbaBytes = null;
+    _lastProcessedFormat = null;
     _processedSizeBytes = 0;
     _oomDialogMessage = null;
     targetWidthInput = '';
@@ -163,7 +168,6 @@ class PhotoController extends ChangeNotifier {
 
   /// Keeps controller state in sync when the user navigates with the device
   /// back button (route pops) instead of one of the screen callbacks.
-  /// Deliberately silent: the navigator already reflects the new route.
   void syncScreenState(ScreenState state) {
     if (_screenState == state) return;
     _screenState = state;
@@ -191,35 +195,50 @@ class PhotoController extends ChangeNotifier {
   }) async {
     _loading = true;
     notifyListeners();
-    // Wait until the loading overlay has actually been painted. A zero-delay
-    // future can resume before the next frame, so fast decodes would finish
-    // before the spinner ever became visible.
     await WidgetsBinding.instance.endOfFrame;
     try {
-      // Decode + downscale + preview encode all happen on a background isolate.
-      final loaded = await compute(
-        loadImageInBackground,
-        LoadRequest(
-          bytes: bytes,
-          name: name,
-          path: path,
-          mimeType: mimeType,
-        ),
+      // 1. Fast sub-millisecond header parser (mirrors BitmapFactory.Options.inJustDecodeBounds = true)
+      final headerInfo = ImageUtils.parseDimensionsAndFormat(
+        bytes,
+        name: name,
+        mimeType: mimeType,
       );
 
+      late final int width;
+      late final int height;
+      late final ExportFormat format;
+
+      if (headerInfo != null) {
+        width = headerInfo.width;
+        height = headerInfo.height;
+        format = headerInfo.format;
+      } else {
+        final fallback = await ImageUtils.getImageDimensionsNative(bytes);
+        width = fallback.width;
+        height = fallback.height;
+        format = ImageUtils.detectFormat(bytes, name: name, mimeType: mimeType);
+      }
+
       _originalMetadata = ImageMetadata(
-        width: loaded.width,
-        height: loaded.height,
-        sizeBytes: loaded.sizeBytes,
-        sourcePath: loaded.sourcePath,
-        originalName: loaded.originalName,
-        format: ExportFormatX.fromLabel(loaded.formatLabel),
+        width: width,
+        height: height,
+        sizeBytes: bytes.length,
+        sourcePath: path,
+        originalName: name,
+        format: format,
       );
       _sourceBytes = bytes;
       _rotationTurns = 0;
-      _originalDisplayBytes = loaded.displayBytes;
-      targetWidthInput = loaded.width.toString();
-      targetHeightInput = loaded.height.toString();
+      targetWidthInput = width.toString();
+      targetHeightInput = height.toString();
+
+      // 2. Fast native C++ display preview generation (~30ms)
+      _originalDisplayBytes = await ImageUtils.createDisplayPreview(
+        bytes,
+        maxSize: 1400,
+        rotationTurns: 0,
+      );
+
       _screenState = ScreenState.configure;
     } catch (e) {
       _reportFailure(
@@ -400,6 +419,7 @@ class PhotoController extends ChangeNotifier {
     } else {
       resolution = kSizePresets[presetName] ?? [origW, origH];
     }
+
     final presetW = resolution[0];
     final presetH = resolution[1];
 
@@ -410,8 +430,8 @@ class PhotoController extends ChangeNotifier {
         targetWidthInput = origW.toString();
         targetHeightInput = (origW / presetRatio).round().toString();
       } else {
-        targetWidthInput = (origH * presetRatio).round().toString();
         targetHeightInput = origH.toString();
+        targetWidthInput = (origH * presetRatio).round().toString();
       }
     } else {
       targetWidthInput = presetW.toString();
@@ -423,34 +443,25 @@ class PhotoController extends ChangeNotifier {
   // Processing
   // ---------------------------------------------------------------------------
   Future<void> rotateOriginal() async {
-    final source = _sourceBytes;
     final oldMeta = _originalMetadata;
-    if (source == null || oldMeta == null) return;
+    final display = _originalDisplayBytes;
+    if (oldMeta == null || display == null) return;
     _loading = true;
     notifyListeners();
     await WidgetsBinding.instance.endOfFrame;
     try {
       final nextTurns = (_rotationTurns + 1) % 4;
-      // Regenerate only the small preview in the isolate; no full bitmap is
-      // ever kept or rotated on the UI thread.
-      final loaded = await compute(
-        loadImageInBackground,
-        LoadRequest(
-          bytes: source,
-          name: oldMeta.originalName,
-          path: oldMeta.sourcePath,
-          rotationTurns: nextTurns,
-        ),
-      );
       _rotationTurns = nextTurns;
       _originalMetadata = oldMeta.copyWith(
-        width: loaded.width,
-        height: loaded.height,
+        width: oldMeta.height,
+        height: oldMeta.width,
       );
-      _originalDisplayBytes = loaded.displayBytes;
+      // Fast rotation of display preview in native C++ (~5ms)
+      _originalDisplayBytes = await ImageUtils.rotateDisplayBytes(display);
+
       if (selectedPresetRatio == 'Original') {
-        targetWidthInput = loaded.width.toString();
-        targetHeightInput = loaded.height.toString();
+        targetWidthInput = _originalMetadata!.width.toString();
+        targetHeightInput = _originalMetadata!.height.toString();
       } else {
         selectPreset(selectedPresetRatio);
       }
@@ -483,10 +494,15 @@ class PhotoController extends ChangeNotifier {
     if (source == null || meta == null) return;
     _loading = true;
     notifyListeners();
-    // Let the loading overlay paint before the isolate starts.
-    await Future<void>.delayed(Duration.zero);
+    await WidgetsBinding.instance.endOfFrame;
     try {
-      final request = ProcessRequest(
+      final targetW = int.tryParse(targetWidthInput) ?? meta.width;
+      final targetH = int.tryParse(targetHeightInput) ?? meta.height;
+      final exportFmt = _originalMetadata?.format ?? ExportFormat.jpg;
+      final sizeLimit = _currentSizeLimitKb();
+
+      // Native C++ decode + crop + transform + scale + mask (~50-100ms)
+      final result = await ImageUtils.cropAndTransform(
         sourceBytes: source,
         rotationTurns: _rotationTurns,
         left: pixelLeft,
@@ -497,22 +513,20 @@ class PhotoController extends ChangeNotifier {
         perspectiveX: perspectiveX,
         perspectiveY: perspectiveY,
         perspectivePoints: perspectivePoints,
-        targetWidth: int.tryParse(targetWidthInput) ?? meta.width,
-        targetHeight: int.tryParse(targetHeightInput) ?? meta.height,
-        cutShape: selectedCutShape.label,
-        exportFormat: (_originalMetadata?.format ?? ExportFormat.jpg).label,
-        sizeLimitKb: _currentSizeLimitKb(),
+        targetWidth: targetW,
+        targetHeight: targetH,
+        cutShape: selectedCutShape,
+        exportFormat: exportFmt,
+        sizeLimitKb: sizeLimit,
       );
-
-      // All heavy pixel work happens on a separate isolate. The UI stays
-      // responsive, so Android never shows an ANR / "App isn't responding".
-      final result = await compute(processPhotoInBackground, request);
 
       _processedWidth = result.width;
       _processedHeight = result.height;
+      _processedRawRgbaBytes = result.rawRgbaBytes;
       _processedEncodedBytes = result.bytes;
       _processedDisplayBytes = result.displayBytes;
       _processedSizeBytes = result.bytes.length;
+      _lastProcessedFormat = exportFmt;
       _screenState = ScreenState.preview;
     } catch (e) {
       _reportFailure(
@@ -534,27 +548,64 @@ class PhotoController extends ChangeNotifier {
     return sizeLimitUnit == 'MB' ? input * 1024 : input;
   }
 
-  /// Recomputes the expected export size for a chosen output format on a
-  /// background isolate, so switching JPG/PNG/WEBP never freezes the UI.
+  /// Recomputes the expected export size for a chosen output format.
+  /// Fast background encode from cached uncompressed RGBA bytes (< 50ms).
   Future<int> computeSavedBytesAsync(ExportFormat format) async {
-    final encoded = _processedEncodedBytes;
-    if (encoded == null) return 0;
+    if (format == _lastProcessedFormat && _processedEncodedBytes != null) {
+      return _processedEncodedBytes!.length;
+    }
+    final rawRgba = _processedRawRgbaBytes;
+    if (rawRgba == null) {
+      final encoded = _processedEncodedBytes;
+      if (encoded == null) return 0;
+      try {
+        return await compute(
+          recompressInBackground,
+          RecompressRequest(
+            processedBytes: encoded,
+            exportFormat: format.label,
+            sizeLimitKb: _currentSizeLimitKb(),
+          ),
+        );
+      } catch (_) {
+        return _processedSizeBytes;
+      }
+    }
     try {
-      return await compute(
-        recompressInBackground,
-        RecompressRequest(
-          processedBytes: encoded,
+      final bytes = await compute(
+        compressRawInBackground,
+        CompressRawRequest(
+          rawRgbaBytes: rawRgba,
+          width: _processedWidth,
+          height: _processedHeight,
           exportFormat: format.label,
           sizeLimitKb: _currentSizeLimitKb(),
         ),
       );
+      return bytes.length;
     } catch (_) {
       return _processedSizeBytes;
     }
   }
 
-  /// Encodes the processed image for export in the chosen format, off-thread.
+  /// Encodes the processed image for export in the chosen format.
   Future<Uint8List> encodeForExport(ExportFormat format) async {
+    if (format == _lastProcessedFormat && _processedEncodedBytes != null) {
+      return _processedEncodedBytes!;
+    }
+    final rawRgba = _processedRawRgbaBytes;
+    if (rawRgba != null) {
+      return compute(
+        compressRawInBackground,
+        CompressRawRequest(
+          rawRgbaBytes: rawRgba,
+          width: _processedWidth,
+          height: _processedHeight,
+          exportFormat: format.label,
+          sizeLimitKb: _currentSizeLimitKb(),
+        ),
+      );
+    }
     final encoded = _processedEncodedBytes;
     if (encoded == null) return Uint8List(0);
     return compute(

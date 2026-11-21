@@ -1,6 +1,4 @@
-/// Runs the expensive crop/resize/mask/compress pipeline on a background
-/// isolate so high-resolution photos never block the UI thread (which caused
-/// Android's "App isn't responding" dialog).
+/// Background isolate tasks for photo operations.
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -50,12 +48,14 @@ class ProcessRequest {
 class ProcessResult {
   final Uint8List bytes;
   final Uint8List displayBytes;
+  final Uint8List? rawRgbaBytes;
   final int width;
   final int height;
 
   const ProcessResult({
     required this.bytes,
     required this.displayBytes,
+    this.rawRgbaBytes,
     required this.width,
     required this.height,
   });
@@ -99,18 +99,17 @@ class LoadResult {
   });
 }
 
-/// Decodes a high-resolution photo and produces the small display preview, all
-/// in a background isolate so the UI never freezes while picking an image.
+/// Decodes an image and produces a display preview.
 LoadResult loadImageInBackground(LoadRequest request) {
   var image = ImageUtils.decodeCorrected(request.bytes);
   if (image == null) {
     throw StateError('Unable to decode image');
   }
-  if (request.rotationTurns != 0) {
+  if (request.rotationTurns % 4 != 0) {
     image = img.copyRotate(
       image,
-      angle: 90.0 * request.rotationTurns,
-      interpolation: img.Interpolation.cubic,
+      angle: 90.0 * (request.rotationTurns % 4),
+      interpolation: img.Interpolation.nearest,
     );
   }
   final display = ImageUtils.createDisplayCopy(image);
@@ -142,6 +141,34 @@ class RecompressRequest {
   });
 }
 
+/// Request used to encode an uncompressed raw RGBA buffer to a target format.
+class CompressRawRequest {
+  final Uint8List rawRgbaBytes;
+  final int width;
+  final int height;
+  final String exportFormat;
+  final int? sizeLimitKb;
+
+  const CompressRawRequest({
+    required this.rawRgbaBytes,
+    required this.width,
+    required this.height,
+    required this.exportFormat,
+    required this.sizeLimitKb,
+  });
+}
+
+/// Encodes raw RGBA bytes to target format with optional size limit in background.
+Uint8List compressRawInBackground(CompressRawRequest request) {
+  return ImageUtils.compressRawRgbaBytes(
+    rawRgbaBytes: request.rawRgbaBytes,
+    width: request.width,
+    height: request.height,
+    format: ExportFormatX.fromLabel(request.exportFormat),
+    sizeLimitKb: request.sizeLimitKb,
+  );
+}
+
 /// Re-encodes the processed image off the UI thread so switching JPG/PNG/WEBP
 /// segments never freezes the preview screen.
 int recompressInBackground(RecompressRequest request) {
@@ -167,19 +194,18 @@ Uint8List encodeForExportInBackground(RecompressRequest request) {
   );
 }
 
-/// Top-level entry point for `compute()`.
+/// Pure Dart background isolate fallback for crop/resize/mask/compress.
 Future<ProcessResult> processPhotoInBackground(ProcessRequest request) async {
   var source = ImageUtils.decodeCorrected(request.sourceBytes);
   if (source == null) {
     throw StateError('Unable to decode source image');
   }
 
-  // Apply the rotations the user performed in the crop editor.
-  if (request.rotationTurns != 0) {
+  if (request.rotationTurns % 4 != 0) {
     source = img.copyRotate(
       source,
-      angle: 90.0 * request.rotationTurns,
-      interpolation: img.Interpolation.cubic,
+      angle: 90.0 * (request.rotationTurns % 4),
+      interpolation: img.Interpolation.nearest,
     );
   }
 
@@ -225,6 +251,7 @@ Future<ProcessResult> processPhotoInBackground(ProcessRequest request) async {
     displayBytes: ImageUtils.toPngBytes(
       ImageUtils.createDisplayCopy(finalBitmap),
     ),
+    rawRgbaBytes: masked.toUint8List(),
     width: finalBitmap.width,
     height: finalBitmap.height,
   );
