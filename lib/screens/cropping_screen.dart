@@ -4,7 +4,7 @@
 /// and a best-effort 4-point perspective editor, all with Flutter painters.
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:image/image.dart' as img;
 
 import '../controllers/photo_controller.dart';

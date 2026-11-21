@@ -1,5 +1,5 @@
 /// Port of `WelcomeScreen.kt` — the landing screen.
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 class WelcomeScreen extends StatelessWidget {
   final VoidCallback onGalleryClick;

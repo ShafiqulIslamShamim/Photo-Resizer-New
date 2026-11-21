@@ -3,7 +3,7 @@
 /// Navigation is handled with real routes (`MaterialPageRoute` inside a local
 /// Navigator). The controller's [ScreenState] only acts as the trigger for a
 /// route push/pop, so each screen stays an independent route in the stack.
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../controllers/photo_controller.dart';

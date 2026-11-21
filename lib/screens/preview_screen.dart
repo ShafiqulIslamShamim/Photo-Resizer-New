@@ -1,7 +1,7 @@
 /// Port of `PreviewScreen.kt` — comparison views, output format and export.
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../controllers/photo_controller.dart';
 import '../models/photo_models.dart';

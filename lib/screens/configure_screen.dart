@@ -1,5 +1,8 @@
-/// Port of `ConfigureScreen.kt` — dimension, preset, shape and size-limit setup.
-import 'package:flutter/material.dart';
+/// Port of `ConfigureScreen.kt`.
+///
+/// The layout, colors and font sizes below follow the Compose source directly.
+/// All colors come from the app's Material 3 [ColorScheme] (set up in main.dart).
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import '../controllers/photo_controller.dart';
@@ -24,7 +27,8 @@ class ConfigureScreen extends StatefulWidget {
 }
 
 class _ConfigureScreenState extends State<ConfigureScreen> {
-  String _segment = 'Custom Size';
+  /// Mirrors `rememberSaveable { mutableStateOf("Custom Size") }`.
+  String _activeSegment = 'Custom Size';
 
   final _widthCtrl = TextEditingController();
   final _heightCtrl = TextEditingController();
@@ -34,9 +38,28 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
   final _ratioHeightCtrl = TextEditingController();
   final _limitCtrl = TextEditingController();
 
+  static const List<String> _segments = ['Custom Size', 'Preset Size', 'Aspect Ratio'];
+  static const List<String> _shapes = ['Square', 'Circle', 'Triangle'];
+  static final List<String> _sizePresets = [
+    ...kSizePresets.keys,
+    kCustomPreset,
+  ];
+  static const List<String> _aspectPresets = [
+    'Original',
+    'Freeform',
+    '1:1',
+    '4:3',
+    '16:9',
+    '9:16',
+    '2:3',
+    '3:2',
+    '21:9',
+    kCustomRatio,
+  ];
+
   @override
   void dispose() {
-    for (final c in [
+    for (final controller in [
       _widthCtrl,
       _heightCtrl,
       _mmWidthCtrl,
@@ -45,27 +68,28 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
       _ratioHeightCtrl,
       _limitCtrl,
     ]) {
-      c.dispose();
+      controller.dispose();
     }
     super.dispose();
   }
 
-  void _sync(TextEditingController c, String value) {
-    if (c.text != value) {
-      final selection = c.selection;
-      c.text = value;
-      c.selection = selection;
-    }
+  /// Keeps a text field in sync with controller state without moving the caret.
+  void _sync(TextEditingController field, String value) {
+    if (field.text == value) return;
+    final selection = field.selection;
+    field.text = value;
+    field.selection = selection;
   }
 
   @override
   Widget build(BuildContext context) {
-    final c = widget.controller;
+    // Read the M3 scheme from the app theme on every build.
     final colors = Theme.of(context).colorScheme;
 
     return AnimatedBuilder(
-      animation: c,
+      animation: widget.controller,
       builder: (context, _) {
+        final c = widget.controller;
         _sync(_widthCtrl, c.targetWidthInput);
         _sync(_heightCtrl, c.targetHeightInput);
         _sync(_mmWidthCtrl, c.customMmWidth);
@@ -108,40 +132,32 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _previewCard(meta, c, colors),
-                      _sectionTitle('Resolution Mode'),
-                      _segmented(
-                        ['Custom Size', 'Preset Size', 'Aspect Ratio'],
-                        _segment,
-                        (value) {
-                          setState(() => _segment = value);
-                          if (value == 'Aspect Ratio') {
-                            c.selectPreset(c.selectedPresetRatio);
-                          } else if (value == 'Preset Size' &&
-                              c.selectedPresetSize != 'None') {
-                            c.selectPresetSize(c.selectedPresetSize);
-                          }
-                        },
-                        colors,
+                      _previewCard(meta, colors),
+                      _title('Resolution Mode'),
+                      _segmentRow(
+                        labels: _segments,
+                        selected: _activeSegment,
+                        colors: colors,
+                        onTap: _onSegmentTap,
                       ),
                       const SizedBox(height: 4),
-                      switch (_segment) {
-                        'Custom Size' => _customSize(c, colors),
-                        'Preset Size' => _presetSize(c, colors),
-                        'Aspect Ratio' => _aspectRatio(c, colors),
+                      switch (_activeSegment) {
+                        'Custom Size' => _customSizeSection(colors),
+                        'Preset Size' => _presetSizeSection(colors),
+                        'Aspect Ratio' => _aspectRatioSection(colors),
                         _ => const SizedBox.shrink(),
                       },
-                      _sectionTitle('Image Cut Shape', top: 8),
-                      _segmented(
-                        ['Square', 'Circle', 'Triangle'],
-                        c.selectedCutShape.label,
-                        (value) => c.setCutShape(CutShapeX.fromLabel(value)),
-                        colors,
-                        testPrefix: 'shape_segment',
+                      _title('Image Cut Shape'),
+                      _segmentRow(
+                        labels: _shapes,
+                        selected: widget.controller.selectedCutShape.label,
+                        colors: colors,
                         fontSize: 12,
+                        testKeyPrefix: 'shape_segment',
+                        onTap: (shape) => c.setCutShape(CutShapeX.fromLabel(shape)),
                       ),
-                      _sectionTitle('File Size Optimization'),
-                      _compressionCard(c, colors),
+                      _title('File Size Optimization'),
+                      _compressionCard(colors),
                       const SizedBox(height: 24),
                     ],
                   ),
@@ -151,8 +167,219 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     );
   }
 
+  void _onSegmentTap(String segment) {
+    setState(() => _activeSegment = segment);
+    final c = widget.controller;
+    if (segment == 'Aspect Ratio') {
+      c.selectPreset(c.selectedPresetRatio);
+    } else if (segment == 'Preset Size' && c.selectedPresetSize != 'None') {
+      c.selectPresetSize(c.selectedPresetSize);
+    }
+  }
+
   // ---------------------------------------------------------------------------
-  Widget _previewCard(ImageMetadata meta, PhotoController c, ColorScheme colors) {
+  // Shared building blocks (one-to-one with the Compose modifiers)
+  // ---------------------------------------------------------------------------
+
+  /// `Text(... fontSize = 14.sp, fontWeight = Bold, padding(top=8, bottom=8))`.
+  Widget _title(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
+      child: Text(
+        text,
+        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  /// Compose segmented control:
+  /// `Row(fillMaxWidth, background(surfaceVariant 0.4, radius 14), padding 4,
+  /// spacedBy 4) { Box(weight 1, height 40, clip 10,
+  /// background(selected ? primary : Transparent)) { Text(...) } }`
+  Widget _segmentRow({
+    required List<String> labels,
+    required String selected,
+    required ColorScheme colors,
+    required ValueChanged<String> onTap,
+    double fontSize = 11,
+    String? testKeyPrefix,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: colors.surfaceVariant.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          for (final label in labels)
+            Expanded(
+              child: _segmentButton(
+                label: label,
+                selected: selected == label,
+                colors: colors,
+                fontSize: fontSize,
+                height: 40,
+                radius: 10,
+                testKey: testKeyPrefix == null
+                    ? null
+                    : '${testKeyPrefix}_${label.toLowerCase()}',
+                onTap: () => onTap(label),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The filled "pill" used by every segmented control and chip on this screen.
+  Widget _segmentButton({
+    required String label,
+    required bool selected,
+    required ColorScheme colors,
+    required double fontSize,
+    required double height,
+    required double radius,
+    required VoidCallback onTap,
+    String? testKey,
+    bool fillWidth = true,
+    EdgeInsets padding = const EdgeInsets.symmetric(horizontal: 4),
+  }) {
+    return SizedBox(
+      height: height,
+      child: Material(
+        color: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: testKey == null ? null : Key(testKey),
+          onTap: onTap,
+          child: Container(
+            width: fillWidth ? double.infinity : null,
+            height: height,
+            padding: padding,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: selected ? colors.primary : Colors.transparent,
+              borderRadius: BorderRadius.circular(radius),
+            ),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.bold,
+                color: selected ? colors.onPrimary : colors.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Compose `FlowRow` of chips used for presets.
+  Widget _chipRow({
+    required List<String> labels,
+    required String selected,
+    required ColorScheme colors,
+    required ValueChanged<String> onTap,
+    double fontSize = 11,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: colors.surfaceVariant.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final label in labels)
+            _segmentButton(
+              label: label,
+              selected: selected == label,
+              colors: colors,
+              fontSize: fontSize,
+              height: 38,
+              radius: 10,
+              fillWidth: false,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              onTap: () => onTap(label),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Compose `OutlinedTextField(shape = RoundedCornerShape(24))`.
+  Widget _field({
+    required TextEditingController controller,
+    required String label,
+    required ColorScheme colors,
+    required ValueChanged<String> onChanged,
+    String? testKey,
+    String? hint,
+    bool allowDecimal = false,
+  }) {
+    return Expanded(
+      child: TextField(
+        key: testKey == null ? null : Key(testKey),
+        controller: controller,
+        onChanged: onChanged,
+        keyboardType: TextInputType.numberWithOptions(decimal: allowDecimal),
+        inputFormatters: [
+          allowDecimal
+              ? _DigitsAndDotFormatter()
+              : FilteringTextInputFormatter.digitsOnly,
+        ],
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          filled: true,
+          fillColor: colors.surface,
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(24),
+            borderSide: BorderSide(color: colors.primary),
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Compose info row: 20 dp info icon + 11/12 sp supporting text.
+  Widget _infoRow(String text, ColorScheme colors, {double fontSize = 11}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outlined, size: 20, color: colors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: fontSize, color: colors.onSurfaceVariant),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sections (same order as ConfigureScreen.kt)
+  // ---------------------------------------------------------------------------
+
+  Widget _previewCard(ImageMetadata meta, ColorScheme colors) {
     return Card(
       color: colors.surface,
       elevation: 2,
@@ -169,10 +396,10 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
                 height: 180,
                 width: double.infinity,
                 color: Colors.black.withValues(alpha: 0.05),
-                child: c.originalDisplayBytes == null
+                child: widget.controller.originalDisplayBytes == null
                     ? const SizedBox.shrink()
                     : Image.memory(
-                        c.originalDisplayBytes!,
+                        widget.controller.originalDisplayBytes!,
                         fit: BoxFit.contain,
                       ),
               ),
@@ -191,7 +418,11 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _metaColumn('Original Format', 'JPEG File', colors),
-                _metaColumn('Resolution', '${meta.width} × ${meta.height} px', colors),
+                _metaColumn(
+                  'Resolution',
+                  '${meta.width} × ${meta.height} px',
+                  colors,
+                ),
                 _metaColumn(
                   'Ratio',
                   ImageUtils.getAspectRatioText(meta.width, meta.height),
@@ -216,135 +447,16 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
       children: [
         Text(label, style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant)),
         const SizedBox(height: 2),
-        Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
       ],
     );
   }
 
-  Widget _sectionTitle(String text, {double top = 8, double bottom = 8}) {
-    return Padding(
-      padding: EdgeInsets.only(top: top, bottom: bottom),
-      child: Text(
-        text,
-        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
-  /// Shared surface used by every segmented control on this screen.
-  Widget _segmentPanel({
-    required List<Widget> children,
-    required ColorScheme colors,
-    double bottomMargin = 16,
-    double radius = 14,
-    double backgroundOpacity = 0.4,
-  }) {
-    return Container(
-      margin: EdgeInsets.only(bottom: bottomMargin),
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: colors.surfaceVariant.withValues(alpha: backgroundOpacity),
-        borderRadius: BorderRadius.circular(radius),
-      ),
-      child: Row(children: children),
-    );
-  }
-
-  Widget _segmented(
-    List<String> options,
-    String selected,
-    ValueChanged<String> onChanged,
-    ColorScheme colors, {
-    String? testPrefix,
-    double fontSize = 11,
-  }) {
-    return _segmentPanel(
-      colors: colors,
-      children: [
-        for (final option in options)
-          Expanded(
-            child: _tapBox(
-              height: 40,
-              selected: selected == option,
-              colors: colors,
-              onTap: () => onChanged(option),
-              testKey: testPrefix == null ? null : '${testPrefix}_${option.toLowerCase()}',
-              child: Text(
-                option,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: fontSize,
-                  fontWeight: FontWeight.bold,
-                  color: selected == option ? colors.onPrimary : colors.onSurfaceVariant,
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _tapBox({
-    required double height,
-    required bool selected,
-    required ColorScheme colors,
-    required VoidCallback onTap,
-    required Widget child,
-    String? testKey,
-    EdgeInsets padding = const EdgeInsets.symmetric(horizontal: 4),
-  }) {
-    return SizedBox(
-      height: height,
-      child: InkWell(
-        key: testKey == null ? null : Key(testKey),
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Container(
-          padding: padding,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected ? colors.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-
-  Widget _field({
-    required TextEditingController controller,
-    required String label,
-    required ColorScheme colors,
-    required ValueChanged<String> onChanged,
-    String? testKey,
-    String? placeholder,
-    bool allowDecimal = false,
-  }) {
-    return Expanded(
-      child: TextField(
-        key: testKey == null ? null : Key(testKey),
-        controller: controller,
-        onChanged: onChanged,
-        keyboardType: TextInputType.numberWithOptions(decimal: allowDecimal),
-        inputFormatters: [
-          allowDecimal ? _DecimalTextFormatter() : FilteringTextInputFormatter.digitsOnly,
-        ],
-        decoration: InputDecoration(
-          labelText: label,
-          hintText: placeholder,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(24),
-            borderSide: BorderSide(color: colors.primary),
-          ),
-          fillColor: colors.surface,
-        ),
-      ),
-    );
-  }
-
-  Widget _customSize(PhotoController c, ColorScheme colors) {
+  Widget _customSizeSection(ColorScheme colors) {
+    final c = widget.controller;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -358,16 +470,16 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
             _field(
               controller: _widthCtrl,
               label: 'Width (px)',
-              colors: colors,
               testKey: 'target_width_field',
+              colors: colors,
               onChanged: c.setTargetWidth,
             ),
             const SizedBox(width: 16),
             _field(
               controller: _heightCtrl,
               label: 'Height (px)',
-              colors: colors,
               testKey: 'target_height_field',
+              colors: colors,
               onChanged: c.setTargetHeight,
             ),
           ],
@@ -376,11 +488,8 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     );
   }
 
-  Widget _presetSize(PhotoController c, ColorScheme colors) {
-    final presets = [
-      ...kSizePresets.keys,
-      kCustomPreset,
-    ];
+  Widget _presetSizeSection(ColorScheme colors) {
+    final c = widget.controller;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -389,28 +498,29 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
-        _chipWrap(
-          presets,
-          c.selectedPresetSize,
-          colors,
-          (preset) => c.selectPresetSize(preset),
+        _chipRow(
+          labels: _sizePresets,
+          selected: c.selectedPresetSize,
+          colors: colors,
+          onTap: c.selectPresetSize,
         ),
         if (c.selectedPresetSize != 'None') ...[
-          const SizedBox(height: 8),
           const Text(
             'Preset Resolution Mode',
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          _segmented(
-            ['Maximum', 'Original'],
-            c.presetResolutionMode.label,
-            (v) => c.changePresetResolutionMode(
-              v == 'Maximum'
+          _segmentRow(
+            labels: ['Maximum Resolution', 'Original Preset Size'],
+            selected: c.presetResolutionMode.label == 'Maximum'
+                ? 'Maximum Resolution'
+                : 'Original Preset Size',
+            colors: colors,
+            onTap: (value) => c.changePresetResolutionMode(
+              value == 'Maximum Resolution'
                   ? PresetResolutionMode.maximum
                   : PresetResolutionMode.original,
             ),
-            colors,
           ),
           _infoRow(
             c.presetResolutionMode == PresetResolutionMode.maximum
@@ -430,8 +540,8 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
               _field(
                 controller: _mmWidthCtrl,
                 label: 'Width (mm)',
-                colors: colors,
                 testKey: 'custom_mm_width_field',
+                colors: colors,
                 allowDecimal: true,
                 onChanged: c.updateCustomMmWidth,
               ),
@@ -439,8 +549,8 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
               _field(
                 controller: _mmHeightCtrl,
                 label: 'Height (mm)',
-                colors: colors,
                 testKey: 'custom_mm_height_field',
+                colors: colors,
                 allowDecimal: true,
                 onChanged: c.updateCustomMmHeight,
               ),
@@ -451,7 +561,8 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     );
   }
 
-  Widget _aspectRatio(PhotoController c, ColorScheme colors) {
+  Widget _aspectRatioSection(ColorScheme colors) {
+    final c = widget.controller;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -460,23 +571,12 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
-        _chipWrap(
-          [
-            'Original',
-            'Freeform',
-            '1:1',
-            '4:3',
-            '16:9',
-            '9:16',
-            '2:3',
-            '3:2',
-            '21:9',
-            kCustomRatio,
-          ],
-          c.selectedPresetRatio,
-          colors,
-          (preset) => c.selectPreset(preset),
+        _chipRow(
+          labels: _aspectPresets,
+          selected: c.selectedPresetRatio,
+          colors: colors,
           fontSize: 12,
+          onTap: c.selectPreset,
         ),
         if (c.selectedPresetRatio == kCustomRatio) ...[
           const Text(
@@ -489,8 +589,8 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
               _field(
                 controller: _ratioWidthCtrl,
                 label: 'Width Ratio',
-                colors: colors,
                 testKey: 'custom_ratio_width_field',
+                colors: colors,
                 allowDecimal: true,
                 onChanged: c.updateCustomRatioWidth,
               ),
@@ -498,8 +598,8 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
               _field(
                 controller: _ratioHeightCtrl,
                 label: 'Height Ratio',
-                colors: colors,
                 testKey: 'custom_ratio_height_field',
+                colors: colors,
                 allowDecimal: true,
                 onChanged: c.updateCustomRatioHeight,
               ),
@@ -510,67 +610,8 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
     );
   }
 
-  Widget _chipWrap(
-    List<String> options,
-    String selected,
-    ColorScheme colors,
-    ValueChanged<String> onTap, {
-    double fontSize = 11,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: colors.surfaceVariant.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Wrap(
-        spacing: 6,
-        runSpacing: 6,
-        children: [
-          for (final option in options)
-            _tapBox(
-              height: 38,
-              selected: selected == option,
-              colors: colors,
-              onTap: () => onTap(option),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Text(
-                option,
-                style: TextStyle(
-                  fontSize: fontSize,
-                  fontWeight: FontWeight.bold,
-                  color: selected == option
-                      ? colors.onPrimary
-                      : colors.onSurfaceVariant,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _infoRow(String text, ColorScheme colors, {double fontSize = 11}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.info_outline, size: 20, color: colors.primary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(fontSize: fontSize, color: colors.onSurfaceVariant),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _compressionCard(PhotoController c, ColorScheme colors) {
+  Widget _compressionCard(ColorScheme colors) {
+    final c = widget.controller;
     return Card(
       color: colors.primaryContainer.withValues(alpha: 0.15),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -580,49 +621,39 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _segmentPanel(
-              colors: colors,
-              bottomMargin: 0,
-              radius: 12,
-              backgroundOpacity: 0.5,
-              children: [
-                Expanded(
-                  child: _tapBox(
-                    height: 38,
-                    selected: c.isAutoCompress,
-                    colors: colors,
-                    onTap: () => c.setAutoCompress(true),
-                    child: Text(
-                      'Auto (High Quality)',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: c.isAutoCompress
-                            ? colors.onPrimary
-                            : colors.onSurfaceVariant,
-                      ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: colors.surfaceVariant.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _segmentButton(
+                      label: 'Auto (High Quality)',
+                      selected: c.isAutoCompress,
+                      colors: colors,
+                      fontSize: 12,
+                      height: 38,
+                      radius: 8,
+                      onTap: () => c.setAutoCompress(true),
                     ),
                   ),
-                ),
-                Expanded(
-                  child: _tapBox(
-                    height: 38,
-                    selected: !c.isAutoCompress,
-                    colors: colors,
-                    onTap: () => c.setAutoCompress(false),
-                    child: Text(
-                      'Custom Target Limit',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: !c.isAutoCompress
-                            ? colors.onPrimary
-                            : colors.onSurfaceVariant,
-                      ),
+                  Expanded(
+                    child: _segmentButton(
+                      label: 'Custom Target Limit',
+                      selected: !c.isAutoCompress,
+                      colors: colors,
+                      fontSize: 12,
+                      height: 38,
+                      radius: 8,
+                      onTap: () => c.setAutoCompress(false),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             if (c.isAutoCompress)
@@ -639,57 +670,28 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  Expanded(
-                    flex: 13,
-                    child: TextField(
-                      key: const Key('size_limit_field'),
-                      controller: _limitCtrl,
-                      onChanged: c.setSizeLimit,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      decoration: InputDecoration(
-                        labelText: 'Limit amount',
-                        hintText: 'e.g. 500',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide(color: colors.primary),
-                        ),
-                        fillColor: colors.surface,
-                      ),
-                    ),
+                  _field(
+                    controller: _limitCtrl,
+                    label: 'Limit amount',
+                    hint: 'e.g. 500',
+                    testKey: 'size_limit_field',
+                    colors: colors,
+                    onChanged: c.setSizeLimit,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    flex: 10,
-                    child: SizedBox(
+                    child: Container(
                       height: 56,
-                      child: _segmentPanel(
-                        colors: colors,
-                        bottomMargin: 0,
-                        radius: 24,
-                        backgroundOpacity: 0.5,
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: colors.surfaceVariant.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Row(
                         children: [
                           for (final unit in ['KB', 'MB'])
                             Expanded(
-                              child: _tapBox(
-                                height: 48,
-                                selected: c.sizeLimitUnit == unit,
-                                colors: colors,
-                                onTap: () => c.setSizeUnit(unit),
-                                child: Text(
-                                  unit,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                    color: c.sizeLimitUnit == unit
-                                        ? colors.onPrimaryContainer
-                                        : colors.onSurfaceVariant,
-                                  ),
-                                ),
-                              ),
+                              child: _unitButton(unit, colors),
                             ),
                         ],
                       ),
@@ -709,9 +711,9 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
                   ),
                 ),
                 onPressed: () {
-                  final w = int.tryParse(c.targetWidthInput);
-                  final h = int.tryParse(c.targetHeightInput);
-                  if (w == null || w <= 0 || h == null || h <= 0) {
+                  final width = int.tryParse(c.targetWidthInput);
+                  final height = int.tryParse(c.targetHeightInput);
+                  if (width == null || width <= 0 || height == null || height <= 0) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Please configure valid non-zero target pixels'),
@@ -739,11 +741,45 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
       ),
     );
   }
+
+  /// Compose KB/MB box: `weight 1, fillMaxHeight, clip 20,
+  /// background(selected ? primaryContainer : Transparent)`.
+  Widget _unitButton(String unit, ColorScheme colors) {
+    final selected = widget.controller.sizeLimitUnit == unit;
+    return SizedBox(
+      height: 48,
+      child: Material(
+        color: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => widget.controller.setSizeUnit(unit),
+          child: Container(
+            width: double.infinity,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: selected ? colors.primaryContainer : Colors.transparent,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              unit,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: selected
+                    ? colors.onPrimaryContainer
+                    : colors.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-/// Allows only digits and a single decimal point (mirrors the Kotlin
-/// `filter { it.isDigit() || it == '.' }`).
-class _DecimalTextFormatter extends TextInputFormatter {
+/// Allows digits and a single decimal point, like the Kotlin filter.
+class _DigitsAndDotFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(
     TextEditingValue oldValue,
